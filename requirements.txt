@@ -1,15 +1,8 @@
 # PeerTorrent Requirements
-# Python Version Required: Python 3.10+
+# Supported Python Versions: 3.10+
 
-# Experiment Data Processing
-numpy==2.1.1
-pandas==2.2.3
-
-# Experiment Visualization
-matplotlib==3.9.2
-
-# Configuration Management
-pyyaml==6.0.2
-
-# Testing Framework
-pytest==8.3.3
+numpy>=2.2.0
+pandas>=2.2.3
+matplotlib>=3.9.2
+pyyaml>=6.0.2
+pytest>=8.3.3
