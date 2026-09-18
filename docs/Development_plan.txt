@@ -1,0 +1,1390 @@
+PEERTORRENT DEVELOPMENT PLAN
+
+A Python-Based Peer-to-Peer File Sharing System
+
+1. PROJECT
+============================================================ 
+DEVELOPMENT STRATEGY
+============================================================
+
+The PeerTorrent project should be developed using a parallel development
+approach with controlled integration.
+
+The four members should not wait for one another to finish the entire
+project. Instead, Members 1, 2, and 3 can work in parallel on their core
+modules because their responsibilities are mostly independent. Member 4
+can also begin early by developing the piece-selection logic, peer state
+management, and scheduler using clearly defined interfaces and mock
+objects.
+
+The most important requirement before serious integration begins is that
+the team agrees on common interfaces, data structures, message formats,
+and responsibilities. This prevents one member’s implementation from
+becoming incompatible with another member’s code.
+
+The overall development principle is:
+
+    PARALLEL DEVELOPMENT + CONTROLLED INTEGRATION
+
+The project should first be divided into independent modules, then each
+module should be tested separately, and finally all modules should be
+integrated step by step.
+
+2. OVERALL
+============================================================ 
+DEVELOPMENT FLOW
+============================================================
+
+The recommended development flow is:
+
+    Phase 0  -> Architecture and interface agreement
+    Phase 1  -> Core module development
+    Phase 2  -> Unit and module testing
+    Phase 3  -> Initial integration
+    Phase 4  -> Complete peer integration
+    Phase 5  -> Multi-peer testing
+    Phase 6  -> Experiments and performance analysis
+    Phase 7  -> Optional extensions
+    Phase 8  -> Robustness and failure testing
+    Phase 9  -> Final integration testing
+    Phase 10 -> Documentation
+    Phase 11 -> Final cleanup and submission
+
+Members 1, 2, and 3 should mainly work in parallel during Phase 1.
+
+Member 4 should start with the parts that do not require the final
+implementations of Members 1, 2, and 3. Once the interfaces are stable,
+Member 4 can connect the components into the complete peer.
+
+3. PHASE
+============================================================ 
+0 - PROJECT SETUP AND INTERFACE AGREEMENT
+============================================================
+
+Participants: All four members
+
+Before writing large amounts of code, the team should agree on the
+architecture and the interfaces between modules.
+
+The team should finalize:
+
+    - Folder structure
+    - Responsibilities of each member
+    - Common data types
+    - Piece and file representation
+    - Peer representation
+    - Tracker request and response format
+    - Peer-to-peer message format
+    - Handshake format
+    - Error-handling conventions
+    - Logging conventions
+    - How modules communicate with one another
+
+Important files to establish early:
+
+    src/common/constants.py
+    src/common/types.py
+    src/common/logger.py
+
+Important documentation files:
+
+    docs/architecture.md
+    docs/protocol_specification.md
+    docs/message_format.md
+    docs/module_interfaces.md
+
+The most important document for Member 3 is:
+
+    docs/message_format.md
+
+This should be agreed upon before protocol integration because the
+network and protocol implementation depends on the exact message
+structure.
+
+4. PHASE
+============================================================ 
+1 - CORE MODULE DEVELOPMENT
+============================================================
+
+During this phase, Members 1, 2, and 3 work in parallel.
+
+Member 4 can also work independently on selection and peer-management
+logic.
+
+  ----------------------------------
+  5. MEMBER 1 - PIECES AND STORAGE
+  ----------------------------------
+
+Main responsibility:
+
+    File handling
+    Piece creation
+    Piece hashing
+    Piece verification
+    Piece storage
+    File reconstruction
+
+Main folders:
+
+    src/pieces/
+    src/storage/
+
+Main files:
+
+    src/pieces/hash_utils.py
+    src/pieces/metadata.py
+    src/pieces/piece.py
+    src/pieces/verifier.py
+    src/pieces/piece_manager.py
+
+    src/storage/piece_storage.py
+    src/storage/file_manager.py
+
+5.1 hash_utils.py
+
+This module contains the hashing functionality required by PeerTorrent.
+
+It should provide functions for calculating hashes of files or pieces.
+These hashes are later used to determine whether downloaded data is
+correct.
+
+The hashing logic should be kept separate from the rest of the system so
+that other modules can use it without knowing how hashing is
+implemented.
+
+5.2 metadata.py
+
+This module manages information describing a shared file.
+
+The metadata should contain information such as:
+
+    - File name
+    - File size
+    - Piece size
+    - Number of pieces
+    - Hash of each piece
+
+The metadata allows peers to understand how a file is divided and how
+each piece should be verified.
+
+5.3 piece.py
+
+This module represents an individual piece.
+
+A Piece object can contain information such as:
+
+    - Piece index
+    - Piece data
+    - Piece size
+    - Expected hash
+    - Current availability or completion state
+
+The exact fields should be agreed upon in the common interface
+documentation.
+
+5.4 verifier.py
+
+This module verifies downloaded pieces.
+
+When a peer receives a piece, the verifier calculates the hash of the
+received data and compares it with the expected hash from the metadata.
+
+If the hashes match, the piece is considered valid.
+
+If they do not match, the piece should be rejected or downloaded again.
+
+5.5 piece_manager.py
+
+This module manages the complete set of pieces belonging to a file.
+
+It should keep track of:
+
+    - Which pieces exist
+    - Which pieces have been downloaded
+    - Which pieces are missing
+    - Which pieces are currently being processed
+    - Which pieces have passed verification
+
+It acts as the main interface between piece management and the
+peer/download system.
+
+5.6 piece_storage.py
+
+This module handles physical storage of pieces on disk.
+
+It should provide functionality for:
+
+    - Saving a piece
+    - Loading a piece
+    - Checking whether a piece exists
+    - Removing a piece if required
+
+The piece storage layer should hide file-system details from
+higher-level peer logic.
+
+5.7 file_manager.py
+
+This module handles complete files.
+
+It should support operations such as:
+
+    - Reading the source file
+    - Splitting a file into pieces
+    - Preparing pieces for upload
+    - Reconstructing the original file from downloaded pieces
+
+The reconstruction process should only use verified pieces.
+
+Member 1 testing:
+
+    tests/test_metadata.py
+    tests/test_piece_manager.py
+
+Member 1 should complete and test this functionality before depending
+heavily on the network layer.
+
+6. MEMBER
+============================================================ 
+2 - TRACKER AND PEER DISCOVERY
+============================================================
+
+Main responsibility:
+
+    Tracker server
+    Peer registration
+    Peer removal
+    Peer discovery
+    Swarm management
+
+Main folder:
+
+    src/tracker/
+
+Main files:
+
+    src/tracker/peer_registry.py
+    src/tracker/swarm_manager.py
+    src/tracker/tracker_server.py
+    src/tracker/tracker_main.py
+
+6.1 peer_registry.py
+
+This module maintains information about peers known to the tracker.
+
+It should support operations such as:
+
+    - Registering a peer
+    - Removing a peer
+    - Looking up peers
+    - Checking whether a peer is already registered
+    - Updating peer information
+
+The registry should provide a clean interface to the rest of the
+tracker.
+
+6.2 swarm_manager.py
+
+This module manages groups of peers participating in the same
+file-sharing swarm.
+
+It should determine which peers belong to a particular swarm and provide
+the appropriate peer information when requested.
+
+The swarm manager connects peer registration information with
+file-specific participation.
+
+6.3 tracker_server.py
+
+This module implements the main tracker-side request handling.
+
+It should receive tracker requests and return information needed by
+peers to discover other peers.
+
+Typical operations include:
+
+    - Peer registration
+    - Peer updates
+    - Peer lookup
+    - Peer removal
+    - Returning a list of available peers
+
+The exact request and response format must match the agreed protocol
+specification.
+
+6.4 tracker_main.py
+
+This is the entry point for starting the tracker.
+
+It should initialize the tracker server, configure required settings,
+and start listening for requests.
+
+The tracker should be independently executable so that it can be started
+before peers join the swarm.
+
+Member 2 testing:
+
+    tests/test_tracker.py
+
+The tracker should first be tested with simulated requests before being
+connected to real peers.
+
+7. MEMBER
+============================================================ 
+3 - PROTOCOL AND NETWORK DEVELOPMENT
+============================================================
+
+Main responsibility:
+
+    Peer-to-peer protocol
+    Message representation
+    Encoding and decoding
+    Handshake
+    TCP connections
+    Connection management
+
+Main folders:
+
+    src/protocol/
+    src/network/
+
+Main files:
+
+    src/protocol/message.py
+    src/protocol/message_types.py
+    src/protocol/encoder.py
+    src/protocol/decoder.py
+    src/protocol/handshake.py
+
+    src/network/socket_manager.py
+    src/network/connection.py
+    src/network/connection_pool.py
+
+7.1 message_types.py
+
+This module defines the types of messages supported by PeerTorrent.
+
+Depending on the final protocol design, these may include messages for:
+
+    - Handshake
+    - Piece requests
+    - Piece data
+    - Piece availability
+    - Control/state updates
+    - Connection management
+
+The final list should be documented in:
+
+    docs/message_format.md
+
+7.2 message.py
+
+This module provides the representation of a protocol message.
+
+A message should contain the fields required by the protocol, such as:
+
+    - Message type
+    - Payload
+    - Relevant identifiers
+    - Length information, if required
+
+The message object should be independent of the low-level socket
+implementation.
+
+7.3 encoder.py
+
+This module converts a message object into bytes that can be transmitted
+through a network connection.
+
+Its responsibility is serialization.
+
+It should follow the exact format defined in the protocol specification.
+
+7.4 decoder.py
+
+This module performs the reverse operation.
+
+It receives bytes from the network and converts them into valid message
+objects.
+
+It must correctly handle incomplete, malformed, or unexpected data
+according to the agreed error-handling rules.
+
+7.5 handshake.py
+
+This module implements the initial peer-to-peer handshake.
+
+Before exchanging normal protocol messages, two peers should establish
+that they are speaking the expected PeerTorrent protocol.
+
+The handshake implementation must be compatible on both sides of a
+connection.
+
+7.6 socket_manager.py
+
+This module handles low-level socket operations.
+
+It should provide functionality for:
+
+    - Creating sockets
+    - Binding/listening where required
+    - Connecting to peers
+    - Sending data
+    - Receiving data
+    - Closing sockets
+
+Higher-level modules should not need to directly manage raw socket
+details.
+
+7.7 connection.py
+
+This module represents an individual peer connection.
+
+It should manage:
+
+    - Connection state
+    - Sending messages
+    - Receiving messages
+    - Handshake state
+    - Closing the connection
+    - Network errors
+
+7.8 connection_pool.py
+
+This module manages multiple simultaneous peer connections.
+
+It should provide functionality for:
+
+    - Adding connections
+    - Removing connections
+    - Looking up connections
+    - Iterating over active connections
+    - Limiting or tracking active connections if required
+
+Member 3 testing:
+
+    tests/test_protocol.py
+
+The protocol should be tested without requiring the complete PeerTorrent
+application.
+
+8. MEMBER
+============================================================ 
+4 - PEER BEHAVIOR AND PIECE SELECTION
+============================================================
+
+Main responsibility:
+
+    Peer behavior
+    Download management
+    Upload management
+    Scheduling
+    Piece selection
+    Peer state
+
+Main folders:
+
+    src/peer/
+    src/selection/
+
+Main files:
+
+    src/peer/peer.py
+    src/peer/peer_state.py
+    src/peer/download_manager.py
+    src/peer/upload_manager.py
+    src/peer/scheduler.py
+
+    src/selection/selector.py
+    src/selection/rarest_first.py
+    src/selection/random_selector.py
+    src/selection/sequential_selector.py
+
+8.1 Can Member 4 start early?
+
+Yes.
+
+Member 4 should NOT wait until Members 1, 2, and 3 have completely
+finished.
+
+Member 4 can start by implementing:
+
+    - Piece-selection algorithms
+    - Peer state representation
+    - Scheduling logic
+    - Download/upload manager interfaces
+    - Peer class skeleton
+    - Mock-based tests
+
+The main peer integration should happen after the interfaces from
+Members 1, 2, and 3 become stable.
+
+8.2 selector.py
+
+This module defines the common interface for piece-selection strategies.
+
+The peer should be able to ask the selector:
+
+    "Which piece should I request next?"
+
+The selector should return a piece according to the selected strategy.
+
+8.3 rarest_first.py
+
+This module implements a rarest-first selection strategy.
+
+The peer chooses pieces that are less frequently available among
+connected peers.
+
+This strategy is useful for evaluating how piece-selection policy
+affects swarm behavior.
+
+8.4 random_selector.py
+
+This module selects available pieces randomly.
+
+It provides a simple baseline strategy for comparison in experiments.
+
+8.5 sequential_selector.py
+
+This module selects pieces in sequential order.
+
+It is useful as another baseline and can make it easy to observe
+differences between selection strategies.
+
+8.6 peer_state.py
+
+This module stores the current state of a peer.
+
+Possible information includes:
+
+    - Connected peers
+    - Pieces owned by the peer
+    - Pieces currently requested
+    - Pieces currently being uploaded
+    - Download progress
+    - Connection state
+
+The exact structure should use common types where possible.
+
+8.7 scheduler.py
+
+This module decides what the peer should do next.
+
+It coordinates actions such as:
+
+    - Selecting a piece
+    - Requesting a piece
+    - Processing received data
+    - Uploading requested pieces
+    - Maintaining peer connections
+
+The scheduler should coordinate other components rather than duplicating
+their responsibilities.
+
+8.8 download_manager.py
+
+This module manages the download side of the peer.
+
+It should:
+
+    - Determine missing pieces
+    - Request pieces from other peers
+    - Receive piece data
+    - Pass received data for verification
+    - Store verified pieces
+    - Update download state
+
+8.9 upload_manager.py
+
+This module manages the upload side of the peer.
+
+It should:
+
+    - Receive piece requests
+    - Locate requested pieces
+    - Read them from storage
+    - Send them to requesting peers
+    - Handle invalid or unavailable requests
+
+8.10 peer.py
+
+This is the main peer-level component.
+
+It connects together:
+
+    - Tracker communication
+    - Network connections
+    - Protocol messages
+    - Piece management
+    - Download manager
+    - Upload manager
+    - Scheduler
+    - Peer state
+    - Piece selection
+
+Member 4 should perform most of the final integration work here, with
+help from the other members.
+
+9. PHASE
+============================================================ 
+2 - UNIT AND MODULE-LEVEL TESTING
+============================================================
+
+Participants: All members
+
+Every member should test their module independently before full
+integration.
+
+Recommended tests:
+
+    tests/test_metadata.py
+    tests/test_piece_manager.py
+    tests/test_protocol.py
+    tests/test_tracker.py
+    tests/test_multi_peer.py
+
+At this stage, the team should verify that individual modules work
+correctly and that the agreed interfaces are actually usable.
+
+Examples:
+
+    Member 1:
+        Verify splitting, hashing, verification, storage,
+        and reconstruction.
+
+    Member 2:
+        Verify registration, removal, lookup, and swarm
+        management.
+
+    Member 3:
+        Verify encoding, decoding, handshake, and
+        connection behavior.
+
+    Member 4:
+        Verify selection strategies, state transitions,
+        and scheduling using mocks.
+
+10. PHASE
+============================================================ 
+3 - INITIAL INTEGRATION
+============================================================
+
+The first integration should happen gradually.
+
+Do NOT connect the entire project at once.
+
+Recommended order:
+
+    Step 1:
+        Integrate tracker and network components.
+
+    Step 2:
+        Test peer registration and peer discovery.
+
+    Step 3:
+        Establish a TCP connection between two peers.
+
+    Step 4:
+        Perform the PeerTorrent handshake.
+
+    Step 5:
+        Exchange simple protocol messages.
+
+    Step 6:
+        Integrate pieces and storage with the network layer.
+
+    Step 7:
+        Send an actual piece between two peers.
+
+This sequence makes debugging easier because failures can be isolated to
+smaller sections of the system.
+
+11. PHASE
+============================================================ 
+4 - COMPLETE PEER INTEGRATION
+============================================================
+
+Main participant: Member 4
+
+Support: All members
+
+Once the core modules are stable, Member 4 should connect them into the
+complete peer.
+
+The peer should be able to:
+
+    1. Start.
+    2. Read or generate metadata.
+    3. Contact the tracker.
+    4. Discover other peers.
+    5. Establish connections.
+    6. Perform handshakes.
+    7. Determine which pieces are missing.
+    8. Select a piece to request.
+    9. Send a request.
+    10. Receive the piece.
+    11. Verify the piece.
+    12. Store the piece.
+    13. Update peer state.
+    14. Continue until the file is complete.
+    15. Reconstruct the original file.
+
+============================================================ 12. PHASE
+4A - DOWNLOAD FLOW
+============================================================
+
+The basic download flow should look like this:
+
+    User starts PeerTorrent
+            |
+            v
+    Load file metadata
+            |
+            v
+    Contact tracker
+            |
+            v
+    Receive peer list
+            |
+            v
+    Connect to peers
+            |
+            v
+    Perform handshake
+            |
+            v
+    Exchange piece availability
+            |
+            v
+    Piece selector chooses a piece
+            |
+            v
+    Download manager sends request
+            |
+            v
+    Remote peer sends piece
+            |
+            v
+    Verifier checks piece hash
+            |
+        +---+---+
+        |       |
+      Valid   Invalid
+        |       |
+        v       v
+     Store    Reject /
+     piece    request again
+        |
+        v
+    Update state
+        |
+        v
+    Select next piece
+        |
+        v
+    Repeat until complete
+        |
+        v
+    Reconstruct file
+
+13. PHASE
+============================================================ 
+4B - UPLOAD FLOW
+============================================================
+
+The upload flow should be:
+
+    Remote peer sends piece request
+            |
+            v
+    Upload manager receives request
+            |
+            v
+    Check whether requested piece exists
+            |
+        +---+---+
+        |       |
+      Exists  Missing
+        |       |
+        v       v
+    Read piece   Return error /
+        |        ignore request
+        v
+    Create protocol message
+        |
+        v
+    Encode message
+        |
+        v
+    Send through connection
+        |
+        v
+    Remote peer receives piece
+
+14. PHASE
+============================================================ 
+5 - MULTI-PEER TESTING
+============================================================
+
+Once one peer can successfully download from another peer, the team
+should move to multiple peers.
+
+Example:
+
+                +-----------+
+                |  Tracker  |
+                +-----+-----+
+                      |
+          +-----------+-----------+
+          |           |           |
+          v           v           v
+       Peer A      Peer B      Peer C
+          |           |           |
+          +-----------+-----------+
+                      |
+                      v
+                  Peer D
+
+Test cases should include:
+
+    - One seeder and one downloader
+    - One seeder and multiple downloaders
+    - Multiple seeders
+    - Multiple peers sharing different pieces
+    - A peer joining after the swarm has started
+    - A peer leaving during a download
+    - Different piece-selection strategies
+
+15. PHASE
+============================================================ 
+5A - PIECE AVAILABILITY TESTING
+============================================================
+
+The team should verify that peers correctly track which pieces they
+have.
+
+For example:
+
+    Peer A:  0 1 2 3
+    Peer B:  0 2 4 5
+    Peer C:  1 3 4 5
+
+The downloader should be able to determine which peers can provide each
+missing piece.
+
+This is particularly important for testing the rarest-first strategy.
+
+16. PHASE
+============================================================ 
+5B - PIECE SELECTION COMPARISON
+============================================================
+
+The system should support at least three strategies:
+
+    1. Sequential selection
+    2. Random selection
+    3. Rarest-first selection
+
+The same experiment should be run using different strategies.
+
+Possible metrics include:
+
+    - Total download time
+    - Average piece completion time
+    - Number of requests
+    - Number of failed requests
+    - Data transferred
+    - Completion time under different swarm sizes
+
+The results can then be compared in the experiment analysis.
+
+17. PHASE
+============================================================ 
+6 - EXPERIMENTS AND METRICS
+============================================================
+
+Main folder:
+
+    experiments/
+
+Main files:
+
+    experiments/experiment_runner.py
+    experiments/metrics.py
+    experiments/analyzer.py
+
+Plot files:
+
+    experiments/plots/swarm_size.py
+    experiments/plots/strategy_compare.py
+    experiments/plots/free_rider.py
+
+Experiment logs:
+
+    experiments/logs/
+
+17.1 experiment_runner.py
+
+This module runs repeatable experiments.
+
+It should make it possible to configure variables such as:
+
+    - Number of peers
+    - File size
+    - Piece size
+    - Number of seeders
+    - Selection strategy
+    - Network conditions, if simulated
+    - Number of experiment repetitions
+
+17.2 metrics.py
+
+This module collects measurements.
+
+Examples include:
+
+    - Download completion time
+    - Upload volume
+    - Download volume
+    - Number of connections
+    - Number of requests
+    - Piece availability
+    - Failed transfers
+
+17.3 analyzer.py
+
+This module processes experiment results and prepares data for analysis.
+
+It can calculate:
+
+    - Averages
+    - Totals
+    - Distributions
+    - Comparisons between strategies
+    - Results across different swarm sizes
+
+17.4 plots/
+
+This folder contains scripts for generating graphs.
+
+Examples:
+
+    swarm_size.py
+        Analyze behavior as the number of peers changes.
+
+    strategy_compare.py
+        Compare different piece-selection strategies.
+
+    free_rider.py
+        Analyze behavior related to peers that download
+        without contributing uploads, if this experiment
+        is implemented.
+
+18. PHASE
+============================================================ 
+7 - OPTIONAL EXTENSIONS
+============================================================
+
+Main folder:
+
+    src/extensions/
+
+These features should be treated as stretch goals.
+
+They must NOT be required for the core PeerTorrent system to work.
+
+Possible extensions:
+
+    src/extensions/choking/choking_manager.py
+
+    src/extensions/optimistic_unchoke/optimistic.py
+
+    src/extensions/endgame/endgame_manager.py
+
+    src/extensions/dht/dht_node.py
+
+    src/extensions/super_seed/super_seed.py
+
+The team should first finish and stabilize the basic tracker-based
+PeerTorrent implementation.
+
+Only after the core system works should time be spent on extensions.
+
+19. PHASE
+============================================================ 
+8 - ROBUSTNESS AND ERROR HANDLING
+============================================================
+
+After the main functionality works, the team should test failure
+conditions.
+
+Examples:
+
+    - Peer disconnects unexpectedly
+    - Tracker becomes temporarily unavailable
+    - Invalid message is received
+    - Corrupted piece is received
+    - Requested piece does not exist
+    - Connection times out
+    - Peer joins late
+    - Peer leaves before the download finishes
+    - Multiple peers request the same piece
+    - Duplicate piece data is received
+
+The goal is to ensure that the application fails gracefully instead of
+crashing.
+
+20. PHASE
+============================================================ 
+9 - FINAL INTEGRATION TESTING
+============================================================
+
+At this point, all major components should be integrated.
+
+Final system test:
+
+    Tracker
+       |
+       +---- Peer A
+       |
+       +---- Peer B
+       |
+       +---- Peer C
+       |
+       +---- Peer D
+
+The team should perform a complete end-to-end test:
+
+    File creation
+        ->
+    Metadata generation
+        ->
+    Piece splitting
+        ->
+    Tracker registration
+        ->
+    Peer discovery
+        ->
+    Peer connections
+        ->
+    Handshake
+        ->
+    Piece exchange
+        ->
+    Piece verification
+        ->
+    Piece storage
+        ->
+    File reconstruction
+        ->
+    Final file comparison
+
+The reconstructed file should be compared with the original file to
+confirm that the complete transfer was successful.
+
+21. PHASE
+============================================================ 
+10 - FINAL DOCUMENTATION
+============================================================
+
+All members should contribute to documentation.
+
+Required documentation:
+
+    README.md
+    AI-USE.md
+
+    docs/architecture.md
+    docs/protocol_specification.md
+    docs/message_format.md
+    docs/module_interfaces.md
+    docs/experiment_design.md
+    docs/setup_guide.md
+
+README.md should explain:
+
+    - What PeerTorrent is
+    - Main features
+    - How the system works
+    - How to install it
+    - How to run the tracker
+    - How to run peers
+    - How to run tests
+    - How to run experiments
+
+architecture.md should explain:
+
+    - Overall architecture
+    - Module relationships
+    - Tracker role
+    - Peer role
+    - Piece-management flow
+    - Network flow
+
+protocol_specification.md should explain:
+
+    - Tracker protocol
+    - Peer protocol
+    - Handshake
+    - Message sequence
+    - Error conditions
+
+message_format.md should define every network message clearly.
+
+module_interfaces.md should define how modules communicate with one
+another.
+
+experiment_design.md should describe the experiments, variables,
+metrics, and expected analysis.
+
+setup_guide.md should provide exact commands for installing dependencies
+and running the project.
+
+22. PHASE
+============================================================ 
+11 - FINAL CLEANUP AND SUBMISSION
+============================================================
+
+Before submission, the team should:
+
+    - Remove unnecessary code
+    - Remove temporary files
+    - Remove debugging prints
+    - Keep useful logging
+    - Check imports
+    - Run all tests
+    - Test the clean installation process
+    - Verify README instructions
+    - Verify experiment scripts
+    - Check that all required folders exist
+    - Confirm that optional extensions are separated from core code
+    - Confirm that the final repository runs from a clean environment
+
+23.
+============================================================ 
+RECOMMENDED DEVELOPMENT TIMELINE
+============================================================
+
+Phase 0 Architecture + interfaces Participants: All
+
+Phase 1 Core module development Participants: Members 1, 2, 3 in
+parallel
+
+Phase 1D Selection + peer skeleton Participant: Member 4
+
+Phase 2 Unit/module testing Participants: All
+
+Phase 3A Tracker + network integration Participants: Members 2 + 3
+
+Phase 3B Pieces + network integration Participants: Members 1 + 3
+
+Phase 4 Full peer integration Participants: Member 4 + All
+
+Phase 5 Multi-peer testing Participants: All
+
+Phase 6 Experiments + metrics Participants: All / assigned roles
+
+Phase 7 Optional extensions Participants: Selected members
+
+Phase 8 Robustness testing Participants: All
+
+Phase 9 Final integration Participants: All
+
+Phase 10 Documentation Participants: All
+
+Phase 11 Cleanup + submission Participants: All
+
+24.
+============================================================ 
+CRITICAL DEPENDENCIES
+============================================================
+
+The following dependencies should be respected.
+
+1.  Common interfaces must be agreed upon early.
+
+    src/common/types.py and docs/module_interfaces.md should be
+    discussed before major implementation begins.
+
+2.  The protocol format must be stable before network integration.
+
+    docs/message_format.md should be finalized before Member 3
+    integrates the protocol with other modules.
+
+3.  Member 4 should not wait completely.
+
+    Member 4 can develop selection, state management, and scheduling
+    independently using mocks.
+
+4.  Member 4’s final peer integration depends on Members 1, 2, and 3.
+
+    The peer needs: - Piece management from Member 1 - Tracker discovery
+    from Member 2 - Network/protocol functionality from Member 3
+
+5.  Experiments should begin only after the core system is reliable.
+
+    Otherwise, experiment results may reflect software bugs rather than
+    actual system behavior.
+
+6.  Extensions should not affect the core system.
+
+    Optional features should be modular and removable.
+
+25.
+============================================================ 
+DEFINITION OF DONE
+============================================================
+
+The PeerTorrent project can be considered complete when all of the
+following work:
+
+CORE FILE HANDLING
+
+    [ ] Metadata can be generated.
+    [ ] Files can be divided into pieces.
+    [ ] Piece hashes can be generated.
+    [ ] Pieces can be verified.
+    [ ] Pieces can be stored.
+    [ ] Files can be reconstructed.
+
+TRACKER
+
+    [ ] Tracker can start.
+    [ ] Peers can register.
+    [ ] Peers can be removed.
+    [ ] Peers can discover other peers.
+    [ ] Swarms are managed correctly.
+
+NETWORK AND PROTOCOL
+
+    [ ] Peers can connect.
+    [ ] Handshake works.
+    [ ] Messages can be encoded.
+    [ ] Messages can be decoded.
+    [ ] Piece requests work.
+    [ ] Piece transfers work.
+    [ ] Connection failures are handled.
+
+PEER
+
+    [ ] Peer can start.
+    [ ] Peer can contact the tracker.
+    [ ] Peer can discover other peers.
+    [ ] Peer can maintain connections.
+    [ ] Peer can request pieces.
+    [ ] Peer can upload pieces.
+    [ ] Peer can verify downloaded pieces.
+    [ ] Peer can reconstruct the file.
+
+PIECE SELECTION
+
+    [ ] Sequential selection works.
+    [ ] Random selection works.
+    [ ] Rarest-first selection works.
+
+TESTING
+
+    [ ] Unit tests pass.
+    [ ] Protocol tests pass.
+    [ ] Tracker tests pass.
+    [ ] Multi-peer tests pass.
+    [ ] End-to-end file transfer works.
+
+EXPERIMENTS
+
+    [ ] Experiments can be reproduced.
+    [ ] Metrics are collected.
+    [ ] Results can be analyzed.
+    [ ] Graphs can be generated.
+
+DOCUMENTATION
+
+    [ ] README is complete.
+    [ ] Architecture is documented.
+    [ ] Protocol is documented.
+    [ ] Message format is documented.
+    [ ] Module interfaces are documented.
+    [ ] Setup instructions are complete.
+    [ ] Experiment design is documented.
+    [ ] AI usage is documented if required.
+
+26. FINAL
+============================================================ 
+TEAM WORKFLOW
+============================================================
+
+The recommended workflow for the four members is:
+
+    MEMBER 1
+        |
+        +--> Pieces
+        +--> Hashing
+        +--> Verification
+        +--> Storage
+        +--> File reconstruction
+
+
+    MEMBER 2
+        |
+        +--> Tracker
+        +--> Peer registry
+        +--> Swarm management
+        +--> Peer discovery
+
+
+    MEMBER 3
+        |
+        +--> Message definitions
+        +--> Encoding/decoding
+        +--> Handshake
+        +--> Sockets
+        +--> Connections
+
+
+    MEMBER 4
+        |
+        +--> Piece selection
+        +--> Peer state
+        +--> Scheduler
+        +--> Download manager
+        +--> Upload manager
+        +--> Complete peer integration
+
+The development should proceed as:
+
+    1. All members agree on interfaces.
+    2. Members 1, 2, and 3 build their core modules in parallel.
+    3. Member 4 develops selection and peer logic using mocks.
+    4. Each member tests their own modules.
+    5. Tracker and network are integrated.
+    6. Pieces and network are integrated.
+    7. Member 4 integrates the complete peer.
+    8. The team performs a basic end-to-end transfer.
+    9. The team tests multiple peers.
+    10. The team runs controlled experiments.
+    11. Optional extensions are added if time permits.
+    12. Robustness testing is performed.
+    13. Documentation is finalized.
+    14. The complete project is tested from a clean environment.
+
+27. FINAL
+============================================================ 
+PRINCIPLE 
+============================================================
+
+The most important rule for the project is:
+
+    DO NOT WAIT FOR EVERYONE TO FINISH.
+    BUILD IN PARALLEL, BUT INTEGRATE THROUGH AGREED INTERFACES.
+
+Members 1, 2, and 3 can independently develop the main technical
+foundations.
+
+Member 4 can start early with the parts that have low dependency on
+those implementations.
+
+However, the complete peer should only be integrated after the
+interfaces and core functionality of the other modules are stable.
+
+This approach reduces idle time, makes debugging easier, and allows the
+four members to contribute continuously throughout development.
