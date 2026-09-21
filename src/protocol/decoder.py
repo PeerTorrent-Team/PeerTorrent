@@ -25,8 +25,26 @@ class Decoder:
         except (ValueError, TypeError) as exc:
             raise ValueError("Unknown message type") from exc
         
-        # Message class expects the payload to be a dictionary
-        if not isinstance(raw["payload"], dict):
-            raise ValueError("Message payload must be an object")
+        # The Message class excepts the payload to be a dictionary
+        payload = raw["payload"]
+        if not isinstance(payload, dict):
+            raise ValueError("Message payload must be a JSON object")
+
+        # Validate the fields required by each message type
+        required_fields = {
+            MessageType.HANDSHAKE: {"peer_id", "file_id"},
+            MessageType.BITFIELD: {"pieces"},
+            MessageType.HAVE: {"piece_index"},
+            MessageType.REQUEST: {"piece_index"},
+            MessageType.PIECE: {"piece_index", "data"},
+            MessageType.INTERESTED: set(),
+            MessageType.NOT_INTERESTED: set(),
+            MessageType.CHOKE: set(),
+            MessageType.UNCHOKE: set(),
+        }
+
+        missing_fields = required_fields[message_type] - payload.keys()
+        if missing_fields:
+            raise ValueError(f"Missing required payload fields: {sorted(missing_fields)}")
 
         return Message(type=message_type, payload=raw["payload"])
