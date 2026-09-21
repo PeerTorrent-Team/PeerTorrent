@@ -33,4 +33,4 @@ I worked on the initial project documentation and configuration files and used A
 Ankit
 =============================
 
-I used AI assistance for drafting and refining the project documentation structure. AI was used as a support tool to generate initial ideas, improve organization, and help format documents such as the folder structure, `Development_plan.txt`, `message_format.md`, `module_interfaces.md`, and `protocol_specification.md`. The final structure, decisions, and modifications were reviewed and adapted according to the project requirements by me.
+I used AI as a support tool while developing the project documentation and protocol module. It helped me organize documents such as `Development_plan.txt`, `message_format.md`, `module_interfaces.md`, and `protocol_specification.md`, as well as understand and implement parts of `src/protocol/`, including message types, message handling, encoding, decoding, and handshaking. I also used it to clarify Python concepts and debug issues during development. The final code, structure, and decisions were reviewed, understood, tested, and adapted by me according to the project requirements.
