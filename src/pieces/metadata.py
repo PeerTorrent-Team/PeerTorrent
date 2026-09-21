@@ -1,16 +1,5 @@
-import dataclasses
-from typing import List
+# Re-export canonical shared types so that existing M1 code can still
+# import PieceInfo and FileMetadata from src.pieces.metadata.
+from src.common.types import PieceInfo, FileMetadata
 
-@dataclasses.dataclass
-class PieceInfo:
-    index: int
-    size: int
-    hash: str
-
-@dataclasses.dataclass
-class FileMetadata:
-    file_name: str
-    file_size: int
-    piece_size: int
-    piece_count: int
-    pieces: List[PieceInfo]
+__all__ = ["PieceInfo", "FileMetadata"]
