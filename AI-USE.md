@@ -2,7 +2,7 @@
 Rajneesh
 =============================
 
-I worked on the M1 Pieces and Storage module and used AI assistance for understanding the project architecture and module interfaces, implementing and reviewing `hash_utils.py`, `metadata.py`, and `piece.py`, and for debugging and testing support. The final implementations and changes were reviewed and verified according to the project requirements.
+I worked on the M1 Pieces and Storage module and used AI assistance for understanding the project architecture and module interfaces, implementing and reviewing `hash_utils.py`, `metadata.py`, `piece.py`, and `piece_storage.py`, and for debugging and testing support. The final implementations and changes were reviewed and verified according to the project requirements.
 
 
 
