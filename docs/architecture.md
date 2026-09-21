@@ -141,7 +141,7 @@ PeerTorrent/
 │   ├── main.py
 │   │
 │   │
-│   ├── common/                              # SHARED — All Members
+│   ├── common/                              # MEMBER 1
 │   │   ├── __init__.py
 │   │   ├── constants.py
 │   │   ├── types.py
