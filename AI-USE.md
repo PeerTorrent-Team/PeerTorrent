@@ -10,11 +10,11 @@ I worked on the M1 Pieces and Storage module and used AI assistance for understa
 Debjyoti
 =============================
 
+-> src/common/
 
+AI was utilized as an aid for learning and development during the implementation of the `common` module. It assisted in providing explanations of some of the Python programming elements such as dataclasses, frozen dataclasses, type annotations, logging, handlers, formatters, and duplicate handler avoidance.
 
-
-
-
+The code for the `common` module was implemented manually by the team member. AI was used to provide explanations of the design choices, suggest implementation, and assist in the process of testing the code.
 
 =============================
 Aritri
