@@ -320,6 +320,43 @@ select_piece(missing_pieces, availability)
 
 Selects the next piece that should be downloaded.
 
+### Inputs
+
+*missing_pieces*
+
+A collection of piece indices that the local peer still needs to download.
+
+Example:
+
+python
+missing_pieces = [0, 2, 4, 7]
+
+
+*availability*
+
+A mapping where each piece index is associated with the number of connected peers that currently have that piece.
+
+Example:
+
+python
+availability = {
+    0: 3,
+    2: 1,
+    4: 4,
+    7: 2
+}
+
+
+In this example, piece 2 is available from only one peer, while piece 4 is available from four peers.
+
+The availability information is used by the RarestFirstSelector to select the least commonly available required piece.
+
+### Return Value
+
+select_piece() returns the selected piece index.
+
+If there are no missing pieces available for selection, the selector should return None.
+
 ### Implementations
 
 ```text
