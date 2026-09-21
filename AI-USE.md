@@ -22,6 +22,8 @@ Aritri
 
 I worked on the initial project documentation and configuration files and used AI for preparing the README.md, requirements.txt, pyproject.toml, and architecture.md, for summarizing the project overview, learning dependencies, Python project configuration, and generating overall system architecture.
 
+I completed the selection folder and used AI to understand what exactly each algorithm is doing. I used AI to generate temporary test cases to see if my algorithms worked properly. I also used AI to update module_interfaces.md for availability data representation defination.
+
 
 
 
