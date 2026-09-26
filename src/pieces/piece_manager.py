@@ -45,3 +45,7 @@ class PieceManager:
     def is_complete(self) -> bool:
         """Checks whether all pieces have been downloaded."""
         return all(piece.is_complete for piece in self._pieces)
+
+    def piece_count(self) -> int:
+        """Return the total number of pieces."""
+        return len(self._pieces)
