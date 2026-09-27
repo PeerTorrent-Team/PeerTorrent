@@ -1,253 +1,106 @@
-## Architecture Design
+# Architecture
 
-                         ┌─────────────────────────┐
-                         │                         │
-                         │     USER / CLIENT       │
-                         │                         │
-                         │  - Select File          │
-                         │  - Start Download       │
-                         │  - View Status          │
-                         │                         │
-                         └────────────┬────────────┘
-                                      │
-                                      ▼
-                         ┌─────────────────────────┐
-                         │                         │
-                         │   PEERTORRENT PEER      │
-                         │                         │
-                         │  - Peer Controller      │
-                         │  - Download Manager     │
-                         │  - Upload Manager       │
-                         │  - Scheduler            │
-                         │                         │
-                         └────────────┬────────────┘
-                                      │
-                                      ▼
-                         ┌─────────────────────────┐
-                         │                         │
-                         │ METADATA & PIECE MANAGER│
-                         │                         │
-                         │  - File Metadata        │
-                         │  - Piece Management     │
-                         │  - Piece Selection      │
-                         │  - Hash Information     │
-                         │                         │
-                         └────────────┬────────────┘
-                                      │
-                                      ▼
-                         ┌─────────────────────────┐
-                         │                         │
-                         │     TRACKER SERVER      │
-                         │                         │
-                         │  - Peer Registry        │
-                         │  - Swarm Tracking       │
-                         │  - Peer Discovery       │
-                         │                         │
-                         └────────────┬────────────┘
-                                      │
-                              Peer List / Metadata
-                                      │
-                                      ▼
-                    ┌────────────────────────────────────┐
-                    │                                    │
-                    │          PEER-TO-PEER NETWORK      │
-                    │                                    │
-                    └────────────────┬───────────────────┘
-                                     │
-                         Connection / Handshake
-                                     │
-                                     ▼
-              ┌─────────────────────────────────────────────┐
-              │                                             │
-              │              PIECE EXCHANGE                 │
-              │                                             │
-              │   ┌──────────────┐     ┌──────────────┐     │
-              │   │    PEER 1    │     │    PEER 2    │     │
-              │   │    SEEDER    │◄───►│   LEECHER    │     │
-              │   │              │     │              │     │
-              │   │ Complete File│     │Partial File  │     │
-              │   └──────────────┘     └──────────────┘     │
-              │                                             │
-              │   ┌──────────────┐     ┌──────────────┐     │
-              │   │    PEER 3    │◄───►│    PEER 4    │     │
-              │   │   LEECHER    │     │   LEECHER    │     │
-              │   │              │     │              │     │
-              │   │Missing Pieces│     │Missing Pieces│     │
-              │   └──────────────┘     └──────────────┘     │
-              │                                             │
-              └────────────────────┬────────────────────────┘
-                                   │
-                                   ▼
-                         ┌─────────────────────────┐
-                         │                         │
-                         │    HASH VERIFICATION    │
-                         │                         │
-                         │  - Verify Piece Hash    │
-                         │  - Reject Invalid Data  │
-                         │                         │
-                         └────────────┬────────────┘
-                                      │
-                              Verified Pieces
-                                      │
-                                      ▼
-                         ┌─────────────────────────┐
-                         │                         │
-                         │      PIECE STORAGE      │
-                         │                         │
-                         │  - Store Pieces         │
-                         │  - Track Availability   │
-                         │                         │
-                         └────────────┬────────────┘
-                                      │
-                                      ▼
-                         ┌─────────────────────────┐
-                         │                         │
-                         │   FILE RECONSTRUCTION   │
-                         │                         │
-                         │  Pieces → Original File │
-                         │                         │
-                         └────────────┬────────────┘
-                                      │
-                                      ▼
-                         ┌─────────────────────────┐
-                         │                         │
-                         │     COMPLETED FILE      │
-                         │                         │
-                         └─────────────────────────┘
+The PeerTorrent implementation is organized as a basic tracker-assisted peer-to-peer file distribution system. A tracker manages peer discovery, while individual peers coordinate connections, piece selection, verification, and file reconstruction.
 
+## Current Project Structure
 
-## Folder Structure
-
+```text
 PeerTorrent/
-│
-├── README.md
 ├── AI-USE.md
-├── requirements.txt
+├── README.md
 ├── pyproject.toml
-│
-│
+├── requirements.txt
+├── data/
+│   ├── downloads/
+│   ├── input_files/
+│   ├── metadata/
+│   └── peer_storage/
 ├── docs/
 │   ├── architecture.md
-|   ├── Development_plan.txt
-│   ├── protocol_specification.md
+│   ├── Development_plan.txt
+│   ├── experiment_design.md
 │   ├── message_format.md
 │   ├── module_interfaces.md
-│   ├── experiment_design.md
+│   ├── protocol_specification.md
 │   └── setup_guide.md
-│
-│
+├── experiments/
 ├── src/
-│   ├── __init__.py
 │   ├── main.py
-│   │
-│   │
-│   ├── common/                              # MEMBER 2
+│   ├── __init__.py
+│   ├── common/
 │   │   ├── __init__.py
 │   │   ├── constants.py
-│   │   ├── types.py
-│   │   └── logger.py
-│   │
-│   │
-│   ├── tracker/                             # MEMBER 2
+│   │   ├── logger.py
+│   │   └── types.py
+│   ├── network/
 │   │   ├── __init__.py
-│   │   ├── tracker_server.py
-│   │   ├── peer_registry.py
-│   │   ├── swarm_manager.py
-│   │   └── tracker_main.py
-│   │
-│   │
-│   ├── protocol/                            # MEMBER 3
-│   │   ├── __init__.py
-│   │   ├── message.py
-│   │   ├── message_types.py
-│   │   ├── encoder.py
-│   │   ├── decoder.py
-│   │   └── handshake.py
-│   │
-│   │
-│   ├── network/                             # MEMBER 3
-│   │   ├── __init__.py
-│   │   ├── socket_manager.py
 │   │   ├── connection.py
-│   │   └── connection_pool.py
-│   │
-│   │
-│   ├── pieces/                              # MEMBER 1
+│   │   ├── connection_pool.py
+│   │   └── socket_manager.py
+│   ├── peer/
 │   │   ├── __init__.py
+│   │   ├── choking_manager.py
+│   │   ├── download_manager.py
+│   │   ├── peer.py
+│   │   ├── peer_state.py
+│   │   ├── request_manager.py
+│   │   ├── scheduler.py
+│   │   └── upload_manager.py
+│   ├── pieces/
+│   │   ├── __init__.py
+│   │   ├── hash_utils.py
 │   │   ├── metadata.py
+│   │   ├── metadata_serializer.py
 │   │   ├── piece.py
 │   │   ├── piece_manager.py
-│   │   ├── verifier.py
-│   │   └── hash_utils.py
-│   │
-│   │
-│   ├── storage/                             # MEMBER 1
+│   │   └── verifier.py
+│   ├── protocol/
+│   │   ├── __init__.py
+│   │   ├── decoder.py
+│   │   ├── encoder.py
+│   │   ├── handshake.py
+│   │   ├── message.py
+│   │   ├── message_types.py
+│   │   └── ...
+│   ├── selection/
+│   │   ├── __init__.py
+│   │   ├── random_selector.py
+│   │   ├── rarest_first.py
+│   │   ├── selector.py
+│   │   └── sequential_selector.py
+│   ├── storage/
 │   │   ├── __init__.py
 │   │   ├── file_manager.py
 │   │   └── piece_storage.py
-│   │
-│   │
-│   ├── peer/                                # MEMBER 4
-│   │   ├── __init__.py
-│   │   ├── peer.py
-│   │   ├── peer_state.py
-│   │   ├── download_manager.py
-│   │   ├── upload_manager.py
-│   │   └── scheduler.py
-│   │
-│   │
-│   ├── selection/                           # MEMBER 4
-│   │   ├── __init__.py
-│   │   ├── selector.py
-│   │   ├── rarest_first.py
-│   │   ├── random_selector.py
-│   │   └── sequential_selector.py
-│   │
-│   │
-│   └── extensions/                          # STRETCH GOALS
+│   └── tracker/
 │       ├── __init__.py
-│       │
-│       ├── choking/
-│       │   ├── __init__.py
-│       │   └── choking_manager.py
-│       │
-│       ├── optimistic_unchoke/
-│       │   ├── __init__.py
-│       │   └── optimistic.py
-│       │
-│       ├── endgame/
-│       │   ├── __init__.py
-│       │   └── endgame_manager.py
-│       │
-│       ├── dht/
-│       │   ├── __init__.py
-│       │   └── dht_node.py
-│       │
-│       └── super_seed/
-│           ├── __init__.py
-│           └── super_seed.py
-│
-│
-├── data/
-│   ├── input_files/
-│   │   └── .gitkeep
-│   │
-│   ├── metadata/
-│   │   └── .gitkeep
-│   │
-│   ├── downloads/
-│   │   └── .gitkeep
-│   │
-│   └── peer_storage/
-│       └── .gitkeep
-│
-│
-├── experiments/
-│   ├── logs/
-│   │   └── .gitkeep
-│   │
-│   ├── experiment_runner.py
-│   ├── metrics.py
+│       ├── peer_registry.py
+│       ├── swarm_manager.py
+│       ├── tracker.py
+│       ├── tracker_client.py
+│       ├── tracker_main.py
+│       └── tracker_server.py
+└── tests/
+    ├── __init__.py
+    ├── test_metadata.py
+    ├── test_multi_peer.py
+    ├── test_piece_manager.py
+    ├── test_protocol.py
+    └── test_tracker.py
+```
+
+## Runtime Components
+
+- The entry point is [src/main.py](../src/main.py). It starts a peer with metadata, a peer ID, and a listening port.
+- The peer runtime is implemented mainly in [src/peer/peer.py](../src/peer/peer.py) and coordinates connection lifecycle, protocol handling, scheduling, and state updates.
+- Request tracking is handled by [src/peer/request_manager.py](../src/peer/request_manager.py), while choking policy logic lives in [src/peer/choking_manager.py](../src/peer/choking_manager.py).
+- Piece metadata and hash-based verification are handled under [src/pieces](../src/pieces).
+- Storage persistence is managed under [src/storage](../src/storage).
+- Tracker discovery and peer registration are handled under [src/tracker](../src/tracker).
+
+## Notes
+
+The older placeholder `src/extensions/...` structure is not part of the current implementation and is not included in the active project layout.
 │   ├── analyzer.py
 │   │
 │   └── plots/
