@@ -1,6 +1,11 @@
-from protocol.decoder import Decoder
-from protocol.encoder import Encoder
-from protocol.message import Message
+from __future__ import annotations
+
+import threading
+
+from src.protocol.decoder import Decoder
+from src.protocol.encoder import Encoder
+from src.protocol.message import Message
+from src.protocol.message_types import MessageType
 from .socket_manager import SocketManager
 
 
@@ -9,12 +14,14 @@ class Connection:
     def __init__(self, sock, socket_manager: SocketManager | None = None):
         self.socket = sock
         self.socket_manager = socket_manager or SocketManager()
+        self._send_lock = threading.Lock()
 
         self.encoder = Encoder()
         self.decoder = Decoder()
 
         self.connected = False
         self.handshake_complete = False
+        self.handshake_sent = False
 
     def connect(self, host: str, port: int) -> None:
         # Establish a TCP connection to the remote peer.
@@ -26,16 +33,25 @@ class Connection:
         self.connected = True
 
     def send_message(self, message: Message) -> None:
-        # Messages must be encoded into bytes before they can travel over TCP.
+        # Encode the message before sending it through the network.
         data = self.encoder.encode(message)
 
-        self.socket_manager.send(self.socket, data)
+        with self._send_lock:
+            # Send one complete framed protocol message.
+            self.socket_manager.send(self.socket, data)
+
+            # Remember that this connection has already sent its handshake.
+            # This prevents the two peers from repeatedly responding to each
+            # other's handshake messages.
+            if message.type == MessageType.HANDSHAKE:
+                self.handshake_sent = True
 
     def receive_message(self) -> Message:
-        # Receive raw bytes from the TCP connection.
+        # SocketManager returns exactly one complete framed message.
+        # It handles the 4-byte length prefix and partial TCP receives.
         data = self.socket_manager.receive(self.socket)
 
-        # Convert the received bytes back into a protocol Message.
+        # Convert the complete JSON message back into a protocol Message.
         return self.decoder.decode(data)
 
     def close(self) -> None:
@@ -44,3 +60,4 @@ class Connection:
 
         self.connected = False
         self.handshake_complete = False
+        self.handshake_sent = False
