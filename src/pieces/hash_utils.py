@@ -1,19 +1,27 @@
 import hashlib
 from typing import Union
+
+
 def calculate_hash(data: bytes) -> str:
     hasher = hashlib.sha256()
     hasher.update(data)
     return hasher.hexdigest()
+
+
 def calculate_hash_bytes(data: bytes) -> bytes:
     hasher = hashlib.sha256()
     hasher.update(data)
     return hasher.digest()
+
+
 def calculate_file_hash(file_path: str, chunk_size: int = 65536) -> str:
     hasher = hashlib.sha256()
     with open(file_path, 'rb') as f:
         for chunk in iter(lambda: f.read(chunk_size), b''):
             hasher.update(chunk)
     return hasher.hexdigest()
+
+
 def verify_hash(data: bytes, expected_hash: Union[str, bytes]) -> bool:
     if isinstance(expected_hash, bytes):
         return calculate_hash_bytes(data) == expected_hash
