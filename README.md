@@ -76,13 +76,13 @@ pip install .[dev]
 Start tracker:
 
 ``` bash
-python src/tracker/tracker_main.py
+python -m src.tracker.tracker_main
 ```
 
 Start peer:
 
 ``` bash
-python src/main.py
+python -m src.main
 ```
 
 ## Testing
