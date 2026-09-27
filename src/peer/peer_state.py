@@ -28,6 +28,12 @@ class PeerState:
 
         # Choking state
         self._choked_by: dict[str, bool] = {}
+        self._choking: dict[str, bool] = {}
+        self._interested_in_us: dict[str, bool] = {}
+
+        # Whether WE have declared interest to each remote peer
+        # (i.e. whether we last sent them INTERESTED vs NOT_INTERESTED).
+        self._am_interested_in: dict[str, bool] = {}
 
     # Local piece state
     # Updating that new piece is added 
@@ -120,6 +126,9 @@ class PeerState:
             self._peer_pieces.pop(peer_id, None)
             self._connected_peers.discard(peer_id)
             self._choked_by.pop(peer_id, None)
+            self._choking.pop(peer_id, None)
+            self._interested_in_us.pop(peer_id, None)
+            self._am_interested_in.pop(peer_id, None)
 
     # Returns the set of pieces available from a remote peer
     def get_peer_pieces(self, peer_id: str) -> set[int]:
@@ -139,6 +148,9 @@ class PeerState:
     def add_connected_peer(self, peer_id: str) -> None:
         with self._lock:
             self._connected_peers.add(peer_id)
+            self._choked_by.setdefault(peer_id, True)
+            self._choking.setdefault(peer_id, True)
+            self._interested_in_us.setdefault(peer_id, False)
 
     def remove_connected_peer(self, peer_id: str) -> None:
         with self._lock:
@@ -157,6 +169,39 @@ class PeerState:
     def is_choked(self, peer_id: str) -> bool:
         with self._lock:
             return self._choked_by.get(peer_id, False)
+
+    def set_choking(self, peer_id: str, choking: bool) -> None:
+        with self._lock:
+            self._choking[peer_id] = choking
+
+    def is_choking(self, peer_id: str) -> bool:
+        with self._lock:
+            return self._choking.get(peer_id, False)
+
+    def set_interested(self, peer_id: str, interested: bool) -> None:
+        with self._lock:
+            self._interested_in_us[peer_id] = interested
+
+    def is_interested(self, peer_id: str) -> bool:
+        with self._lock:
+            return self._interested_in_us.get(peer_id, False)
+
+    def get_interested_peers(self) -> list[str]:
+        with self._lock:
+            return [
+                peer_id
+                for peer_id, interested in self._interested_in_us.items()
+                if interested
+            ]
+
+    # Our own declared interest towards a remote peer
+    def set_am_interested(self, peer_id: str, interested: bool) -> None:
+        with self._lock:
+            self._am_interested_in[peer_id] = interested
+
+    def am_interested(self, peer_id: str) -> bool:
+        with self._lock:
+            return self._am_interested_in.get(peer_id, False)
 
     #Helper method to validate piece index
     def _validate_piece_index(self, piece_index: int) -> None:

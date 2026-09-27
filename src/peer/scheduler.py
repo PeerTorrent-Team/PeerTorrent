@@ -12,6 +12,7 @@ class Scheduler:
     def __init__(self, state, selector) -> None:
         self._state = state
         self._selector = selector
+        self._round_robin = 0
 
     def schedule(self):
         """
@@ -22,7 +23,7 @@ class Scheduler:
 
         Returns None if no suitable request exists.
         """
-        # Pieces that are missing and not currently requested
+        # Pieces that are missing and not currently requested.
         missing_pieces = [
             piece
             for piece in self._state.get_missing_pieces()
@@ -34,20 +35,24 @@ class Scheduler:
 
         peer_pieces = self._state.get_all_peer_pieces()
 
-        # Initialize availability counts for missing pieces
+        # Only connected, unchoked peers can currently serve pieces.
+        available_peer_pieces = {
+            peer_id: pieces
+            for peer_id, pieces in peer_pieces.items()
+            if peer_id in self._state.get_connected_peers()
+            and not self._state.is_choked(peer_id)
+        }
+
         availability: dict[int, int] = {
             piece: 0
             for piece in missing_pieces
         }
 
-
-        # Update availability counts based on which peers have which pieces
-        for pieces in peer_pieces.values():
+        for pieces in available_peer_pieces.values():
             for piece in pieces:
                 if piece in availability:
                     availability[piece] += 1
 
-        # Only consider pieces that at least one peer has
         available_missing = [
             piece
             for piece in missing_pieces
@@ -57,8 +62,6 @@ class Scheduler:
         if not available_missing:
             return None
 
-
-        # Use the piece selection algorithms to choose a piece to request
         selected_piece = self._selector.select_piece(
             available_missing,
             availability,
@@ -67,20 +70,19 @@ class Scheduler:
         if selected_piece is None:
             return None
 
-        # Find a peer that has the selected piece
         candidate_peers = [
             peer_id
-            for peer_id, pieces in peer_pieces.items()
+            for peer_id, pieces in available_peer_pieces.items()
             if selected_piece in pieces
-            and not self._state.is_choked(peer_id)
         ]
 
         if not candidate_peers:
             return None
 
-        # Keep same ordering 
         candidate_peers.sort()
-
-        selected_peer = candidate_peers[0]
+        selected_peer = candidate_peers[
+            self._round_robin % len(candidate_peers)
+        ]
+        self._round_robin += 1
 
         return selected_peer, selected_piece
