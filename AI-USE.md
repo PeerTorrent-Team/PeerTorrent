@@ -24,6 +24,7 @@ I worked on the initial project documentation and configuration files and used A
 
 I completed the selection folder and used AI to understand what exactly each algorithm is doing. I used AI to generate temporary test cases to see if my algorithms worked properly. I also used AI to update module_interfaces.md for availability data representation defination.
 
+I completed the core peer folder modules, including peer.py, peer_state.py, scheduler.py, download_manager.py, and upload_manager.py. I implemented the core structure and logic of these modules myself, using the project documentation and interfaces as the basis for their design and integration, while using AI as a support tool to understand the responsibilities and flow of each module, particularly how peer state, piece scheduling, downloading, uploading, and protocol message handling interact with the other project components. AI was also used to explain unfamiliar code concepts, review the implementation, identify potential issues, and help me understand how the other modules are related to this folder.
 
 
 
