@@ -15,6 +15,9 @@ def calculate_hash_bytes(data: bytes) -> bytes:
 
 
 def calculate_file_hash(file_path: str, chunk_size: int = 65536) -> str:
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be greater than 0")
+
     hasher = hashlib.sha256()
     with open(file_path, 'rb') as f:
         for chunk in iter(lambda: f.read(chunk_size), b''):
