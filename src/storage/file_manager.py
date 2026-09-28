@@ -39,11 +39,14 @@ def reconstruct_file(pieces: list[tuple[int, bytes]], output_path: str) -> None:
     Hash verification is not performed here; that responsibility belongs to
     verifier.py.
 
-    Raises ValueError if *pieces* is empty, contains duplicate indices, or
-    has gaps in the index sequence.
+    Empty files are supported by writing a zero-length file when *pieces* is
+    empty.
     """
     if not pieces:
-        raise ValueError("pieces must not be empty")
+        output = Path(output_path)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(b"")
+        return
 
     indices = [index for index, _ in pieces]
 
@@ -66,3 +69,10 @@ def reconstruct_file(pieces: list[tuple[int, bytes]], output_path: str) -> None:
     with open(output, "wb") as f:
         for _, data in sorted_pieces:
             f.write(data)
+
+    total_size = sum(len(data) for _, data in sorted_pieces)
+    if total_size <= 0 and len(sorted_pieces) == 0:
+        return
+    # The file_manager layer only validates sequence integrity; final hash checks
+    # are expected to happen in higher-level metadata validation.
+    return
