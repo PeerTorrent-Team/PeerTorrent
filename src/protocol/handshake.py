@@ -16,15 +16,16 @@ class Handshake:
 
     @staticmethod
     def validate_handshake(message: Message) -> bool:
-        # A handshake must actually be a HANDSHAKE message.
         if message.type != MessageType.HANDSHAKE:
             return False
 
-        # Both identifiers are required to identify the peer and shared file.
-        if "peer_id" not in message.payload:
+        peer_id = message.payload.get("peer_id")
+        file_id = message.payload.get("file_id")
+
+        if not isinstance(peer_id, str) or not peer_id.strip():
             return False
 
-        if "file_id" not in message.payload:
+        if not isinstance(file_id, str) or not file_id.strip():
             return False
 
         return True

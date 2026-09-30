@@ -31,6 +31,7 @@ I worked on the initial project documentation and configuration files and used A
 
 I completed the selection folder and used AI to understand what exactly each algorithm is doing. I used AI to generate temporary test cases to see if my algorithms worked properly. I also used AI to update module_interfaces.md for availability data representation defination.
 
+I completed the core peer folder modules, including peer.py, peer_state.py, scheduler.py, download_manager.py, and upload_manager.py. I implemented the core structure and logic of these modules myself, using the project documentation and interfaces as the basis for their design and integration, while using AI as a support tool to understand the responsibilities and flow of each module, particularly how peer state, piece scheduling, downloading, uploading, and protocol message handling interact with the other project components. AI was also used to explain unfamiliar code concepts, review the implementation, identify potential issues, and help me understand how the other modules are related to this folder.
 
 
 
@@ -43,3 +44,24 @@ Ankit
 =============================
 
 I used AI as a support tool while developing the project documentation, protocol module, and network module. It helped me organize documents such as `Development_plan.txt`, `message_format.md`, `module_interfaces.md`, and `protocol_specification.md`, as well as understand and implement parts of `src/protocol/`, including message types, message handling, encoding, decoding, and handshaking. I also used it to understand and implement `src/network/`, including TCP socket management, peer connections, message sending and receiving, connection state handling, and connection pooling. AI was also used to clarify Python concepts, debug issues, and design and run small tests for the implemented modules. The final code, structure, and decisions were reviewed, understood, tested, and adapted by me according to the project requirements.
+
+=============================
+Rajneesh — M1 Integration
+=============================
+
+I carried out the M1 integration pass to align the Pieces and Storage modules with the integration version supplied by a teammate. AI assistance (Antigravity) was used to review the supplied integration version, identify file-level differences, plan the integration order, generate implementation prompts, review changes, and perform compilation and compatibility verification.
+
+The M1 files aligned with the supplied integration version were:
+- src/common/types.py
+- src/pieces/hash_utils.py
+- src/pieces/metadata.py
+- src/pieces/metadata_serializer.py
+- src/pieces/piece.py
+- src/pieces/piece_manager.py
+- src/pieces/verifier.py
+- src/storage/file_manager.py
+- src/storage/piece_storage.py
+
+The integration work preserved the supplied architecture and interfaces. The final versions of all nine M1 source files were compared byte-for-byte with the supplied integration archive using cmp and matched exactly.
+
+AI assistance was used for review, planning, implementation guidance, and verification. No claim should be made that AI independently authored the complete core BitTorrent protocol implementation. The existing pytest suite collected zero tests during validation, so no test cases were reported as passing.

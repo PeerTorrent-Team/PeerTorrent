@@ -39,7 +39,23 @@ The main message types are:
 
 ---
 
-## 3. Message Representation
+## 3. Wire Framing and Serialization
+
+All peer-to-peer messages are transmitted using a TCP framing format:
+
+```text
+[4-byte big-endian unsigned length][JSON payload bytes]
+```
+
+The 4-byte length prefix encodes the number of bytes in the JSON payload that follows. Each frame is sent as a complete payload and then decoded on the receiving side. This framing is handled by the socket/connection layer before the message is passed to the protocol decoder.
+
+When a `PIECE` payload is serialized, the `data` field is encoded as Base64 text inside JSON, and when the JSON is decoded the receiver converts it back to raw bytes. This keeps the binary payload safe for JSON transport.
+
+Every decoded message is validated before it is accepted for peer processing.
+
+---
+
+## 4. Message Representation
 
 A message can be represented internally as:
 
@@ -65,7 +81,7 @@ The exact Python representation can be implemented by the protocol module.
 
 ---
 
-## 4. Handshake Message
+## 5. Handshake Message
 
 The handshake is the first message exchanged between two peers.
 
@@ -83,7 +99,7 @@ A peer should validate the handshake before continuing with normal communication
 
 ---
 
-## 5. Bitfield Message
+## 6. Bitfield Message
 
 The bitfield tells another peer which pieces are currently available.
 
@@ -104,7 +120,7 @@ Available:1 0 1 1 0 1
 
 ---
 
-## 6. Have Message
+## 7. Have Message
 
 Sent when a peer successfully obtains a new piece.
 
@@ -126,7 +142,7 @@ This allows connected peers to update their knowledge of piece availability.
 
 ---
 
-## 7. Request Message
+## 8. Request Message
 
 Used when a peer wants to download a particular piece.
 
@@ -148,7 +164,7 @@ The receiving peer checks whether it has the requested piece before sending it.
 
 ---
 
-## 8. Piece Message
+## 9. Piece Message
 
 Contains the actual requested piece data.
 
@@ -172,7 +188,7 @@ The receiver verifies the piece before storing it.
 
 ---
 
-## 9. Interested / Not Interested
+## 10. Interested / Not Interested
 
 ### `INTERESTED`
 
@@ -196,7 +212,7 @@ These messages contain no additional data.
 
 ---
 
-## 10. Choke / Unchoke
+## 11. Choke / Unchoke
 
 ### `CHOKE`
 
