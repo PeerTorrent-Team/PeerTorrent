@@ -36,14 +36,37 @@ class PeerRegistry:
         self._peer_ttl = peer_ttl
         self._clock = clock
 
-    def register_peer(self, peer: PeerInfo) -> None:
+    def register_peer(
+        self,
+        peer: PeerInfo,
+        *,
+        left: int = 0,
+        uploaded: int = 0,
+        downloaded: int = 0,
+        is_seeder: bool = False,
+    ) -> None:
         now = self._clock()
 
         with self._lock:
-            self._peers[peer.peer_id] = PeerRecord(
-                peer,
-                last_seen=now,
-            )
+            existing = self._peers.get(peer.peer_id)
+
+            if existing is None:
+                self._peers[peer.peer_id] = PeerRecord(
+                    peer,
+                    last_seen=now,
+                    left=left,
+                    uploaded=uploaded,
+                    downloaded=downloaded,
+                    is_seeder=is_seeder,
+                )
+                return
+
+            existing.peer = peer
+            existing.last_seen = now
+            existing.left = left
+            existing.uploaded = uploaded
+            existing.downloaded = downloaded
+            existing.is_seeder = is_seeder
 
     def remove_peer(self, peer_id: str) -> None:
         with self._lock:
@@ -62,8 +85,13 @@ class PeerRegistry:
         with self._lock:
             return [record.peer for record in self._peers.values()]
 
-    def reap_stale_peers(self) -> None:
+    def get_records(self) -> list[PeerRecord]:
+        with self._lock:
+            return list(self._peers.values())
+
+    def reap_stale_peers(self) -> list[str]:
         now = self._clock()
+        removed: list[str] = []
 
         with self._lock:
             stale_peer_ids = [
@@ -74,3 +102,6 @@ class PeerRegistry:
 
             for peer_id in stale_peer_ids:
                 del self._peers[peer_id]
+                removed.append(peer_id)
+
+        return removed

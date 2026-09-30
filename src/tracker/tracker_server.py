@@ -16,6 +16,7 @@ class TrackerServer:
     ):
         self._registry = registry
         self._swarms = swarms
+        self._peer_files: dict[str, str] = {}
         self._lock = threading.RLock()
 
     def handle_request(self, request: dict[str, Any]) -> dict[str, Any]:
@@ -41,11 +42,34 @@ class TrackerServer:
             "error": "UNKNOWN_TYPE",
         }
 
+    def reap_stale_peers(self) -> list[str]:
+        with self._lock:
+            stale_peer_ids = self._registry.reap_stale_peers()
+
+            for peer_id in stale_peer_ids:
+                file_id = self._peer_files.pop(peer_id, None)
+
+                if file_id is not None:
+                    self._swarms.remove_peer(file_id, peer_id)
+
+            return stale_peer_ids
+
     def _handle_announce(
         self,
         request: dict[str, Any],
     ) -> dict[str, Any]:
-        required_fields = ["peer_id", "ip", "port", "file_id"]
+        self.reap_stale_peers()
+
+        required_fields = [
+            "peer_id",
+            "ip",
+            "port",
+            "file_id",
+            "left",
+            "uploaded",
+            "downloaded",
+            "is_seeder",
+        ]
 
         for field in required_fields:
             if field not in request:
@@ -59,18 +83,42 @@ class TrackerServer:
         ip = request["ip"]
         port = request["port"]
         file_id = request["file_id"]
+        left = request["left"]
+        uploaded = request["uploaded"]
+        downloaded = request["downloaded"]
+        is_seeder = request["is_seeder"]
 
-        if not isinstance(peer_id, str):
+        if not isinstance(peer_id, str) or not peer_id.strip():
             return {"ok": False, "error": "INVALID_FIELD", "field": "peer_id"}
 
-        if not isinstance(ip, str):
+        if not isinstance(ip, str) or not ip.strip():
             return {"ok": False, "error": "INVALID_FIELD", "field": "ip"}
 
-        if not isinstance(port, int):
-            return {"ok": False, "error": "INVALID_FIELD", "field": "port"}
+        if (
+            not isinstance(port, int)
+            or isinstance(port, bool)
+            or not 1 <= port <= 65535
+        ):
+            return {
+                "ok": False,
+                "error": "INVALID_FIELD",
+                "field": "port",
+            }
 
-        if not isinstance(file_id, str):
+        if not isinstance(file_id, str) or not file_id.strip():
             return {"ok": False, "error": "INVALID_FIELD", "field": "file_id"}
+
+        if not isinstance(left, int) or isinstance(left, bool) or left < 0:
+            return {"ok": False, "error": "INVALID_FIELD", "field": "left"}
+
+        if not isinstance(uploaded, int) or isinstance(uploaded, bool) or uploaded < 0:
+            return {"ok": False, "error": "INVALID_FIELD", "field": "uploaded"}
+
+        if not isinstance(downloaded, int) or isinstance(downloaded, bool) or downloaded < 0:
+            return {"ok": False, "error": "INVALID_FIELD", "field": "downloaded"}
+
+        if not isinstance(is_seeder, bool):
+            return {"ok": False, "error": "INVALID_FIELD", "field": "is_seeder"}
 
         peer = PeerInfo(
             peer_id=peer_id,
@@ -78,8 +126,22 @@ class TrackerServer:
             port=port,
         )
 
-        self._registry.register_peer(peer)
-        self._swarms.add_peer(file_id, peer)
+        with self._lock:
+            old_file_id = self._peer_files.get(peer_id)
+
+            self._registry.register_peer(
+                peer,
+                left=left,
+                uploaded=uploaded,
+                downloaded=downloaded,
+                is_seeder=is_seeder,
+            )
+            self._swarms.move_peer(
+                old_file_id,
+                file_id,
+                peer,
+            )
+            self._peer_files[peer_id] = file_id
 
         peers = self._swarms.get_peers(file_id)
 
@@ -108,16 +170,37 @@ class TrackerServer:
         self,
         request: dict[str, Any],
     ) -> dict[str, Any]:
+        self.reap_stale_peers()
+
+        peer_id = request.get("peer_id")
         file_id = request.get("file_id")
 
-        if not isinstance(file_id, str):
+        if (
+            not isinstance(peer_id, str)
+            or not peer_id.strip()
+        ):
             return {
                 "ok": False,
-                "error": "MISSING_FIELD",
+                "error": "INVALID_FIELD",
+                "field": "peer_id",
+            }
+
+        if (
+            not isinstance(file_id, str)
+            or not file_id.strip()
+        ):
+            return {
+                "ok": False,
+                "error": "INVALID_FIELD",
                 "field": "file_id",
             }
 
         peers = self._swarms.get_peers(file_id)
+        peers = [
+            peer
+            for peer in peers
+            if peer.peer_id != peer_id
+        ]
         peers = peers[:MAX_PEERS_RETURNED]
 
         return {
@@ -137,10 +220,24 @@ class TrackerServer:
         self,
         request: dict[str, Any],
     ) -> dict[str, Any]:
-        peers = self._registry.get_peers()
+        self.reap_stale_peers()
+
+        records = self._registry.get_records()
 
         return {
             "ok": True,
             "type": "STATS_RESPONSE",
-            "peer_count": len(peers),
+            "peer_count": len(records),
+            "seeder_count": sum(
+                1 for record in records if record.is_seeder
+            ),
+            "leecher_count": sum(
+                1 for record in records if not record.is_seeder
+            ),
+            "uploaded": sum(
+                record.uploaded for record in records
+            ),
+            "downloaded": sum(
+                record.downloaded for record in records
+            ),
         }
