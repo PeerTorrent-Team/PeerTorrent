@@ -10,11 +10,18 @@ I worked on the M1 Pieces and Storage module and used AI assistance for understa
 Debjyoti
 =============================
 
--> src/common/
+-> src/common/ 
 
 AI was utilized as an aid for learning and development during the implementation of the `common` module. It assisted in providing explanations of some of the Python programming elements such as dataclasses, frozen dataclasses, type annotations, logging, handlers, formatters, and duplicate handler avoidance.
 
 The code for the `common` module was implemented manually by the team member. AI was used to provide explanations of the design choices, suggest implementation, and assist in the process of testing the code.
+
+-> src/tracker/
+
+I worked on the tracker module, including `peer_registry.py`, `swarm_manager.py`, `tracker_client.py`, `tracker_main.py`, and `tracker_server.py`. I used AI assistance for understanding the tracker architecture and module interfaces, peer registration, swarm management, tracker-client communication, and the overall flow of tracker operations.
+
+AI was also used for implementation support, debugging, code review, and testing assistance. It helped explain Python concepts and design choices, identify and resolve implementation issues, and suggest temporary test cases for verifying the tracker components. The final implementations and changes were reviewed and verified according to the project requirements.
+
 
 =============================
 Aritri

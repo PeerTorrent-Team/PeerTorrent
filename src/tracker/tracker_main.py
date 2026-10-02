@@ -1,5 +1,7 @@
 import json
 import socketserver
+import threading
+import time
 
 from src.common.constants import (
     DEFAULT_TRACKER_HOST,
@@ -59,10 +61,23 @@ class TrackerTCPServer(socketserver.ThreadingTCPServer):
         handler_class.tracker = tracker
 
 
+def _reap_stale_peers_loop(tracker: TrackerServer) -> None:
+    while True:
+        tracker.reap_stale_peers()
+        time.sleep(30)
+
+
 def main() -> None:
     registry = PeerRegistry()
     swarms = SwarmManager(registry)
     tracker = TrackerServer(registry, swarms)
+
+    reap_thread = threading.Thread(
+        target=_reap_stale_peers_loop,
+        args=(tracker,),
+        daemon=True,
+    )
+    reap_thread.start()
 
     server = TrackerTCPServer(
         (DEFAULT_TRACKER_HOST, DEFAULT_TRACKER_PORT),
