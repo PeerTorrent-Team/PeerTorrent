@@ -65,3 +65,15 @@ The M1 files aligned with the supplied integration version were:
 The integration work preserved the supplied architecture and interfaces. The final versions of all nine M1 source files were compared byte-for-byte with the supplied integration archive using cmp and matched exactly.
 
 AI assistance was used for review, planning, implementation guidance, and verification. No claim should be made that AI independently authored the complete core BitTorrent protocol implementation. The existing pytest suite collected zero tests during validation, so no test cases were reported as passing.
+
+=============================
+Rajneesh — M1 Unit Test Development
+=============================
+
+I used AI/Antigravity assistance for the M1 unit‑test work:
+- reviewing the existing M1 module interfaces and implementation behavior,
+- proposing and refining unit‑test cases for `tests/test_metadata.py` and `tests/test_piece_manager.py`,
+- debugging and refining the tests against the existing implementation,
+- reviewing the test results and verification commands.
+
+The effort added unit tests for the Member 1 Pieces/Storage modules, and the final verification produced **12 passing tests**.
