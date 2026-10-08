@@ -22,6 +22,7 @@ I worked on the tracker module, including `peer_registry.py`, `swarm_manager.py`
 
 AI was also used for implementation support, debugging, code review, and testing assistance. It helped explain Python concepts and design choices, identify and resolve implementation issues, and suggest temporary test cases for verifying the tracker components. The final implementations and changes were reviewed and verified according to the project requirements.
 
+-> tests/test_tracker.py: Used AI for conceptual understanding and debugging of code.
 
 =============================
 Aritri
