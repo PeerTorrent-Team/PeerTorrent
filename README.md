@@ -35,7 +35,16 @@ Files are divided into pieces. Peers exchange pieces directly, while a tracker i
 
 ### Tracker
 
-Handles peer registration, swarm management, and discovery.
+Handles peer registration, swarm management, and discovery through a threaded
+HTTP/JSON API. The default listener is `http://127.0.0.1:6969`.
+
+- `POST /announce` — register/update a peer and return other peers in its swarm.
+- `GET /peers?peer_id=...&file_id=...` — fetch peers in a file's swarm.
+- `GET /stats` — return peer, seeder, leecher, and transfer counters.
+- `GET /health` — basic health check.
+
+The tracker is for discovery only; file pieces are transferred directly between
+peers over the peer wire protocol.
 
 ### Protocol and Network
 

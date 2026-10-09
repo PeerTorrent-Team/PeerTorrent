@@ -40,11 +40,16 @@ python scripts/seed_file.py \
 
 ## Start the Tracker and Seeder
 
-Start the tracker in one terminal:
+Start the HTTP tracker in one terminal:
 
 ```bash
 python -m src.tracker.tracker_main
 ```
+
+By default, it listens at `http://127.0.0.1:6969`. You can check that the service
+is responding by opening `http://127.0.0.1:6969/health`. The API also exposes
+`POST /announce`, `GET /peers`, and `GET /stats`; peer clients use the same HTTP
+port configured by `--tracker-port`.
 
 Start the seeded peer in a second terminal:
 

@@ -1,5 +1,9 @@
+import json
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import time
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 import pytest
 
@@ -7,7 +11,7 @@ from src.common.types import PeerInfo
 from src.tracker.peer_registry import PeerRegistry
 from src.tracker.swarm_manager import SwarmManager
 from src.tracker.tracker_client import TrackerClient
-from src.tracker.tracker_main import TrackerRequestHandler, TrackerTCPServer
+from src.tracker.tracker_main import TrackerHTTPServer
 from src.tracker.tracker_server import TrackerServer
 
 
@@ -358,17 +362,14 @@ def test_peer_limit():
     assert len(response["peers"]) == 3
 
 
-# ---------------- TrackerClient + TCP integration ----------------
+# ---------------- TrackerClient + HTTP integration ----------------
 
 @pytest.fixture
 def running_tracker():
     registry = PeerRegistry()
     tracker = TrackerServer(registry, SwarmManager(registry))
 
-    class TestHandler(TrackerRequestHandler):
-        tracker = None
-
-    server = TrackerTCPServer(("127.0.0.1", 0), TestHandler, tracker)
+    server = TrackerHTTPServer(("127.0.0.1", 0), tracker)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
 
@@ -401,3 +402,118 @@ def test_tracker_client_end_to_end(running_tracker):
     assert p1.get_peers() == [
         {"peer_id": "peer2", "ip": "127.0.0.1", "port": 6882}
     ]
+
+# ------------------------- HTTP API contract -------------------------
+
+def test_http_health_and_stats_endpoints(running_tracker):
+    host, port = running_tracker
+    with urlopen(f"http://{host}:{port}/health", timeout=2) as response:
+        assert response.status == 200
+        assert json.loads(response.read()) == {
+            "ok": True,
+            "service": "peertorrent-tracker",
+        }
+
+    client = TrackerClient(
+        host, port, "seed1", "127.0.0.1", 6881, "fileA"
+    )
+    client.announce(left=0, uploaded=20, downloaded=100, is_seeder=True)
+    stats = client.get_stats()
+    assert stats["peer_count"] == 1
+    assert stats["seeder_count"] == 1
+    assert stats["leecher_count"] == 0
+    assert stats["uploaded"] == 20
+    assert stats["downloaded"] == 100
+
+
+def test_http_invalid_json_is_rejected(running_tracker):
+    host, port = running_tracker
+    request = Request(
+        f"http://{host}:{port}/announce",
+        data=b"{not-json",
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with pytest.raises(HTTPError) as error:
+        urlopen(request, timeout=2)
+
+    assert error.value.code == 400
+    assert json.loads(error.value.read()) == {"ok": False, "error": "BAD_JSON"}
+
+
+def test_http_peer_endpoint_requires_both_query_fields(running_tracker):
+    host, port = running_tracker
+    with pytest.raises(HTTPError) as error:
+        urlopen(f"http://{host}:{port}/peers?peer_id=peer1", timeout=2)
+
+    assert error.value.code == 400
+    body = json.loads(error.value.read())
+    assert body["error"] == "MISSING_FIELD"
+    assert body["field"] == "file_id"
+
+
+def test_http_unknown_route_returns_json_404(running_tracker):
+    host, port = running_tracker
+    with pytest.raises(HTTPError) as error:
+        urlopen(f"http://{host}:{port}/not-a-route", timeout=2)
+
+    assert error.value.code == 404
+    assert json.loads(error.value.read()) == {"ok": False, "error": "NOT_FOUND"}
+
+
+def test_http_announce_rejects_oversized_body(running_tracker):
+    host, port = running_tracker
+    request = Request(
+        f"http://{host}:{port}/announce",
+        data=b" " * (64 * 1024 + 1),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with pytest.raises(HTTPError) as error:
+        urlopen(request, timeout=2)
+
+    assert error.value.code == 413
+    assert json.loads(error.value.read()) == {
+        "ok": False,
+        "error": "REQUEST_TOO_LARGE",
+    }
+
+
+def test_http_tracker_tracks_eight_peers_in_one_swarm(running_tracker):
+    host, port = running_tracker
+    clients = [
+        TrackerClient(
+            host,
+            port,
+            f"peer{i}",
+            "127.0.0.1",
+            6880 + i,
+            "shared-file",
+        )
+        for i in range(1, 9)
+    ]
+
+    def announce_client(item):
+        index, client = item
+        peers = client.announce(
+            left=0 if index == 0 else 1024,
+            uploaded=0,
+            downloaded=0,
+            is_seeder=index == 0,
+        )
+        return client.peer_id, peers
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        announce_results = list(executor.map(announce_client, enumerate(clients)))
+
+    for peer_id, peers in announce_results:
+        assert all(peer["peer_id"] != peer_id for peer in peers)
+
+    stats = clients[0].get_stats()
+    assert stats["peer_count"] == 8
+    assert stats["seeder_count"] == 1
+    assert stats["leecher_count"] == 7
+
+    discovered = clients[0].get_peers()
+    assert len(discovered) == 3  # Existing MAX_PEERS_RETURNED policy.
+    assert all(peer["peer_id"] != "peer1" for peer in discovered)
