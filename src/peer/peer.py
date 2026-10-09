@@ -210,7 +210,9 @@ class Peer:
             except OSError:
                 break
 
-            connection = Connection(sock, self._socket_manager)
+            connection = Connection(
+                sock, self._socket_manager, direction="incoming"
+            )
             connection.mark_connected()
 
             thread = threading.Thread(
@@ -235,7 +237,8 @@ class Peer:
             if remote_peer_id == self.peer_id:
                 raise ValueError("Peer cannot connect to itself")
 
-            self.add_connection(remote_peer_id, connection)
+            if not self._register_incoming_connection(remote_peer_id, connection):
+                return
 
             response = self.handle_message(remote_peer_id, message)
             if response is not None:
@@ -253,8 +256,12 @@ class Peer:
                     remote_peer_id,
                     expected_connection=connection,
                 )
-            else:
+            # remove_connection deliberately leaves a different, already
+            # registered connection untouched; always close this failed socket.
+            try:
                 connection.close()
+            except OSError:
+                pass
 
     def _receive_loop(self, peer_id: str, connection: Connection) -> None:
         while self._running:
@@ -292,7 +299,14 @@ class Peer:
                 for peer_data in peers:
                     if not isinstance(peer_data, dict):
                         continue
-                    self.connect_to_peer(peer_data)
+                    # A stale or unreachable tracker entry must not prevent us
+                    # from attempting connections to the rest of the swarm.
+                    try:
+                        self.connect_to_peer(peer_data)
+                    except Exception as exc:
+                        self._logger.debug(
+                            "Could not connect to advertised peer: %s", exc
+                        )
             except Exception as exc:
                 self._logger.warning("Tracker error: %s", exc)
 
@@ -383,14 +397,58 @@ class Peer:
             self._connections.remove(peer_id)
             self._state.remove_peer(peer_id)
 
+        # Use one bounded shutdown budget for the peer, rather than waiting
+        # one full second for every historical connection thread. All active
+        # sockets have been shut down above, so healthy receive loops should
+        # wake promptly; any remaining worker is daemonized and cannot block
+        # process exit indefinitely.
+        join_deadline = time.monotonic() + 1.0
         for thread in list(self._threads):
-            if thread.is_alive():
-                thread.join(timeout=1)
+            if thread is threading.current_thread() or not thread.is_alive():
+                continue
+            remaining = max(0.0, join_deadline - time.monotonic())
+            if remaining == 0.0:
+                break
+            thread.join(timeout=remaining)
 
         self._logger.info(
             "Peer %s stopped",
             self.peer_id,
         )
+
+    def _preferred_connection_direction(self, remote_peer_id: str) -> str:
+        """Prefer one stable TCP direction for a pair of peers."""
+        return "outgoing" if self.peer_id < remote_peer_id else "incoming"
+
+    def _register_incoming_connection(
+        self,
+        remote_peer_id: str,
+        connection: Connection,
+    ) -> bool:
+        """Register an inbound connection, resolving duplicate sockets safely."""
+        connection.direction = "incoming"
+        existing = self._connections.get(remote_peer_id)
+        if existing is not None:
+            preferred = self._preferred_connection_direction(remote_peer_id)
+
+            if existing.direction == preferred:
+                connection.close()
+                return False
+            if preferred != "incoming" or existing.direction != "outgoing":
+                connection.close()
+                return False
+
+            self.remove_connection(
+                remote_peer_id,
+                expected_connection=existing,
+            )
+
+        try:
+            self.add_connection(remote_peer_id, connection)
+        except Exception:
+            connection.close()
+            raise
+        return True
 
     def connect_to_peer(self, peer_info) -> None:
         if isinstance(peer_info, dict):
@@ -398,19 +456,33 @@ class Peer:
             ip = peer_info.get("ip")
             port = peer_info.get("port")
         else:
-            peer_id = peer_info.peer_id
-            ip = peer_info.ip
-            port = peer_info.port
+            peer_id = getattr(peer_info, "peer_id", None)
+            ip = getattr(peer_info, "ip", None)
+            port = getattr(peer_info, "port", None)
 
+        if not isinstance(peer_id, str) or not peer_id.strip():
+            raise ValueError("Peer entry must contain a non-empty peer_id")
+        if not isinstance(ip, str) or not ip.strip():
+            raise ValueError("Peer entry must contain a non-empty ip")
+        if type(port) is not int or not 1 <= port <= 65535:
+            raise ValueError("Peer entry port must be an integer from 1 to 65535")
         if peer_id == self.peer_id:
             return
 
-        if self._connections.get(peer_id):
-            return
+        existing = self._connections.get(peer_id)
+        if existing is not None:
+            preferred = self._preferred_connection_direction(peer_id)
+            if existing.direction == preferred:
+                return
+            if preferred == "outgoing" and existing.direction == "incoming":
+                self.remove_connection(peer_id, expected_connection=existing)
+            else:
+                return
 
         connection = Connection(
             self._socket_manager.create_socket(),
             self._socket_manager,
+            direction="outgoing",
         )
 
         try:
