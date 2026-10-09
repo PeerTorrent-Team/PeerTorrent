@@ -73,16 +73,38 @@ pip install .[dev]
 
 ## Running
 
-Start tracker:
+Create metainfo and prepare the seeder's piece store first:
 
-``` bash
+```bash
+python scripts/create_metadata.py data/input_files/sample.bin \
+    --output data/metadata/sample.bin.json
+python scripts/seed_file.py \
+    --file data/input_files/sample.bin \
+    --metadata data/metadata/sample.bin.json \
+    --peer-id seed1
+```
+
+Start the tracker in one terminal:
+
+```bash
 python -m src.tracker.tracker_main
 ```
 
-Start peer:
+Start the seeder in a second terminal, then start downloaders with different peer
+IDs and ports:
 
-``` bash
-python -m src.main
+```bash
+python -m src.main --peer-id seed1 --metadata data/metadata/sample.bin.json --port 6881
+python -m src.main --peer-id peer2 --metadata data/metadata/sample.bin.json --port 6882
+```
+
+After a downloader has acquired all pieces, reconstruct and verify its output:
+
+```bash
+python scripts/verify_download.py \
+    --metadata data/metadata/sample.bin.json \
+    --peer-id peer2 \
+    --output data/downloads/sample.bin
 ```
 
 ## Testing
