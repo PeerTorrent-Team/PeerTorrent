@@ -5,10 +5,12 @@ import time
 
 from src.common.constants import (
     ANNOUNCE_INTERVAL,
+    CHOKING_INTERVAL,
     DEFAULT_PEER_PORT,
     DEFAULT_TRACKER_HOST,
     DEFAULT_TRACKER_PORT,
     MAX_PIPELINE_REQUESTS,
+    MAX_UNCHOKED_PEERS,
     REQUEST_TIMEOUT,
 )
 from src.common.logger import get_logger
@@ -20,7 +22,7 @@ from src.pieces.verifier import verify_piece
 from src.protocol.handshake import Handshake
 from src.protocol.message import Message
 from src.protocol.message_types import MessageType
-from src.selection.sequential_selector import SequentialSelector
+from src.selection.selector_factory import create_selector
 from src.storage.piece_storage import PieceStorage
 from src.tracker.tracker_client import TrackerClient
 
@@ -56,6 +58,8 @@ class Peer:
         storage: PieceStorage | None = None,
         selector=None,
         max_connections: int | None = None,
+        upload_enabled: bool = True,
+        choking_interval: float = CHOKING_INTERVAL,
     ) -> None:
 
         if not isinstance(peer_id, str) or not peer_id.strip():
@@ -77,6 +81,9 @@ class Peer:
         self.file_id = file_id
         self.host = host
         self.port = port
+        if not isinstance(upload_enabled, bool):
+            raise TypeError("upload_enabled must be a boolean")
+        self._upload_enabled = upload_enabled
 
         self._piece_manager = piece_manager
         self._storage = storage or piece_manager.storage
@@ -84,6 +91,8 @@ class Peer:
         self._uploaded = 0
         self._downloaded = 0
         self._downloaded_by_peer: dict[str, int] = {}
+        self._rejected_upload_requests = 0
+        self._stats_lock = threading.RLock()
 
         self._state = PeerState(
             total_pieces=piece_manager.piece_count()
@@ -132,8 +141,9 @@ class Peer:
             state=self._state,
         )
 
-        #Create selector
-        self._selector = selector or SequentialSelector()
+        # Rarest-first is the normal operating mode; experiments can inject
+        # RandomSelector or SequentialSelector through the same interface.
+        self._selector = selector if selector is not None else create_selector()
 
         # Create scheduler
         self._scheduler = Scheduler(
@@ -154,6 +164,8 @@ class Peer:
             state=self._state,
             send_message=self._send_control_message,
             bytes_downloaded_from_peer=self._get_downloaded_from_peer,
+            interval=choking_interval,
+            max_unchoked=(MAX_UNCHOKED_PEERS if self._upload_enabled else 0),
         )
 
         # Gives this particular peer its own logger
@@ -167,7 +179,8 @@ class Peer:
     # Lifecycle
 
     def _get_downloaded_from_peer(self, peer_id: str) -> int:
-        return self._downloaded_by_peer.get(peer_id, 0)
+        with self._stats_lock:
+            return self._downloaded_by_peer.get(peer_id, 0)
 
     def _send_control_message(self, peer_id: str, message_type: str) -> None:
         connection = self._connections.get(peer_id)
@@ -853,8 +866,14 @@ class Peer:
         if message.type == MessageType.REQUEST:
             piece_index = message.payload["piece_index"]
 
-            connection = self._connections.get(peer_id)
+            # Used by the free-rider experiment: a peer can still download and
+            # participate in discovery while intentionally refusing uploads.
+            if not self._upload_enabled:
+                with self._stats_lock:
+                    self._rejected_upload_requests += 1
+                return None
 
+            connection = self._connections.get(peer_id)
             uploaded = 0
             if connection is not None:
                 uploaded = self._upload_manager.handle_request(
@@ -863,7 +882,8 @@ class Peer:
                     piece_index,
                 )
 
-            self._uploaded += uploaded
+            with self._stats_lock:
+                self._uploaded += uploaded
             return None
 
         if message.type == MessageType.CANCEL:
@@ -877,8 +897,12 @@ class Peer:
 
             if valid:
                 piece_index = message.payload["piece_index"]
-                self._downloaded += len(message.payload["data"])
-                self._downloaded_by_peer[peer_id] = self._downloaded_by_peer.get(peer_id, 0) + len(message.payload["data"])
+                received_bytes = len(message.payload["data"])
+                with self._stats_lock:
+                    self._downloaded += received_bytes
+                    self._downloaded_by_peer[peer_id] = (
+                        self._downloaded_by_peer.get(peer_id, 0) + received_bytes
+                    )
                 self._broadcast_have(piece_index)
                 self._update_interest_all()
 
@@ -946,4 +970,21 @@ class Peer:
     def is_complete(self) -> bool:
         return self._piece_manager.is_complete()
 
+    def get_transfer_stats(self) -> dict[str, object]:
+        """Return an immutable-by-convention snapshot of transfer counters.
+
+        These counters support the free-rider and upload-contribution
+        experiments without exposing mutable internal dictionaries.
+        """
+        with self._stats_lock:
+            return {
+                "peer_id": self.peer_id,
+                "uploaded_bytes": self._uploaded,
+                "downloaded_bytes": self._downloaded,
+                "downloaded_by_peer": dict(self._downloaded_by_peer),
+                "upload_enabled": self._upload_enabled,
+                "rejected_upload_requests": self._rejected_upload_requests,
+                "complete": self.is_complete(),
+            }
+    
     
