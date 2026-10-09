@@ -20,7 +20,7 @@ from src.storage.piece_storage import PieceStorage
 
 
 class FakeConnection:
-    def _init_(self, *, handshake_complete=True, handshake_sent=True):
+    def __init__(self, *, handshake_complete=True, handshake_sent=True):
         self.handshake_complete = handshake_complete
         self.handshake_sent = handshake_sent
         self.sent_messages = []
