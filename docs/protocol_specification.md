@@ -40,21 +40,46 @@ Reconstruct File
 
 ---
 
-## 2. Tracker Communication
+## 2. Tracker Communication (HTTP/JSON)
 
-The tracker is used for peer discovery. It does not transfer file pieces.
+The tracker exposes an HTTP API, by default at `http://127.0.0.1:6969`. It is used
+for peer discovery and swarm membership; it does not transfer file pieces.
 
-When a peer starts, it contacts the tracker and provides basic information about itself.
+### Announce
 
-```text id="m1qv5b"
-Peer → Tracker
-    Register / Request Peers
+`POST /announce` with a JSON body:
 
-Tracker → Peer
-    List of Available Peers
+```json
+{
+  "peer_id": "peer-1",
+  "ip": "127.0.0.1",
+  "port": 6881,
+  "file_id": "<metainfo file id>",
+  "left": 1048576,
+  "uploaded": 0,
+  "downloaded": 0,
+  "is_seeder": false
+}
 ```
 
-The tracker maintains information about which peers are participating in a file's swarm.
+A successful response is JSON with `ok: true`, `type: "ANNOUNCE_RESPONSE"`, and
+`peers`, a list of discovered peers excluding the announcing peer.
+
+### Get peers
+
+`GET /peers?peer_id=peer-1&file_id=<metainfo-file-id>` returns
+`type: "GET_PEERS_RESPONSE"` and a `peers` list. Query parameters must each occur
+once and must not be empty.
+
+### Monitoring and health
+
+`GET /stats` reports total peers, seeders, leechers, uploaded bytes, and downloaded
+bytes. `GET /health` provides a simple liveness response. Invalid JSON and invalid
+fields return an HTTP 4xx response with a JSON error object; oversized announce
+bodies are rejected.
+
+The tracker maintains file-specific swarm membership and stale-peer expiry. Peer
+wire connections and piece transfers remain separate from this HTTP API.
 
 ---
 
