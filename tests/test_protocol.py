@@ -72,6 +72,46 @@ def test_decoder_rejects_malformed_or_invalid_messages(wire):
         Decoder().decode(wire)
 
 
+@pytest.mark.parametrize(
+    "message",
+    [
+        Message(MessageType.HANDSHAKE, {"peer_id": "", "file_id": "f"}),
+        Message(MessageType.BITFIELD, {"pieces": [True, 0]}),
+        Message(MessageType.BITFIELD, {"pieces": [1.0, 0]}),
+        Message(MessageType.REQUEST, {"piece_index": True}),
+        Message(MessageType.HAVE, {"piece_index": 1.5}),
+    ],
+)
+def test_encoder_rejects_outbound_messages_that_violate_wire_schema(message):
+    with pytest.raises(ValueError):
+        Encoder().encode(message)
+
+
+def test_encoder_rejects_message_larger_than_wire_limit():
+    oversized = Message(MessageType.CHOKE, {"extra": "x" * (16 * 1024 * 1024)})
+    with pytest.raises(ValueError, match="too large"):
+        Encoder().encode(oversized)
+
+
+@pytest.mark.parametrize(
+    "wire",
+    [
+        b'{"type":"CHOKE","type":"UNCHOKE","payload":{}}',
+        b'{"type":"CHOKE","payload":{"value":NaN}}',
+        b'{"type":"BITFIELD","payload":{"pieces":[true,0]}}',
+        b'{"type":"BITFIELD","payload":{"pieces":[1.0,0]}}',
+    ],
+)
+def test_decoder_rejects_ambiguous_or_noncanonical_json(wire):
+    with pytest.raises(ValueError):
+        Decoder().decode(wire)
+
+
+def test_decoder_rejects_oversized_message_before_json_parsing():
+    with pytest.raises(ValueError, match="too large"):
+        Decoder().decode(b" " * (16 * 1024 * 1024 + 1))
+
+
 def test_decoder_rejects_invalid_base64_for_piece():
     wire = json.dumps(
         {

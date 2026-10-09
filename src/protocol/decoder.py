@@ -1,8 +1,11 @@
 import base64
 import json
 
+from src.common.constants import MAX_MESSAGE_SIZE
+
 from .message import Message
 from .message_types import MessageType
+from .validation import validate_message
 
 
 class Decoder:
@@ -10,10 +13,34 @@ class Decoder:
         # The SocketManager has already removed the 4-byte TCP length
         # prefix before the decoder receives these bytes.
         # Therefore, Decoder only deals with JSON → Message conversion.
+        if not isinstance(data, (bytes, bytearray)):
+            raise TypeError("message data must be bytes")
+
+        if len(data) > MAX_MESSAGE_SIZE:
+            raise ValueError(
+                f"Message is too large: {len(data)} bytes "
+                f"(maximum is {MAX_MESSAGE_SIZE} bytes)"
+            )
+
         try:
             serialized = data.decode("utf-8")
-            raw = json.loads(serialized)
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+
+            def reject_duplicate_keys(pairs):
+                result = {}
+                for key, value in pairs:
+                    if key in result:
+                        raise ValueError(f"Duplicate JSON key: {key}")
+                    result[key] = value
+                return result
+
+            raw = json.loads(
+                serialized,
+                object_pairs_hook=reject_duplicate_keys,
+                parse_constant=lambda value: (_ for _ in ()).throw(
+                    ValueError(f"Invalid JSON constant: {value}")
+                ),
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
             raise ValueError("Invalid message data") from exc
 
         # A protocol message must be represented as a JSON object.
@@ -53,74 +80,9 @@ class Decoder:
             except (ValueError, TypeError) as exc:
                 raise ValueError("Invalid Base64 PIECE data") from exc
 
-        # Validate the fields required by each message type.
-        required_fields = {
-            MessageType.HANDSHAKE: {"peer_id", "file_id"},
-            MessageType.BITFIELD: {"pieces"},
-            MessageType.HAVE: {"piece_index"},
-            MessageType.REQUEST: {"piece_index"},
-            MessageType.PIECE: {"piece_index", "data"},
-            MessageType.CANCEL: {"piece_index"},
-            MessageType.INTERESTED: set(),
-            MessageType.NOT_INTERESTED: set(),
-            MessageType.CHOKE: set(),
-            MessageType.UNCHOKE: set(),
-        }
-
-        missing_fields = required_fields[message_type] - payload.keys()
-
-        if missing_fields:
-            raise ValueError(
-                f"Missing required payload fields: {sorted(missing_fields)}"
-            )
-
-        if message_type == MessageType.HANDSHAKE:
-            peer_id = payload["peer_id"]
-            file_id = payload["file_id"]
-
-            if (
-                not isinstance(peer_id, str)
-                or not peer_id.strip()
-            ):
-                raise ValueError("HANDSHAKE peer_id must be a non-empty string")
-
-            if (
-                not isinstance(file_id, str)
-                or not file_id.strip()
-            ):
-                raise ValueError("HANDSHAKE file_id must be a non-empty string")
-
-        if message_type == MessageType.BITFIELD:
-            pieces = payload["pieces"]
-
-            if not isinstance(pieces, list):
-                raise ValueError("BITFIELD pieces must be a list")
-
-            if any(
-                isinstance(value, bool) or value not in (0, 1)
-                for value in pieces
-            ):
-                raise ValueError(
-                    "BITFIELD values must be either 0 or 1"
-                )
-
-        # Piece indexes must be non-negative integers.
-        if message_type in {
-            MessageType.HAVE,
-            MessageType.REQUEST,
-            MessageType.PIECE,
-            MessageType.CANCEL,
-        }:
-            piece_index = payload["piece_index"]
-
-            # Check that piece_index is a non-negative integer.
-            if not isinstance(piece_index, int) or isinstance(piece_index, bool):
-                raise ValueError("piece_index must be a non-negative integer")
-
-            if piece_index < 0:
-                raise ValueError("piece_index must be a non-negative integer")
-
-        return Message(
+        message = Message(
             type=message_type,
             payload=payload,
         )
+        validate_message(message)
+        return message

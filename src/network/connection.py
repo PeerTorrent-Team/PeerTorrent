@@ -11,8 +11,18 @@ from .socket_manager import SocketManager
 
 class Connection:
 
-    def __init__(self, sock, socket_manager: SocketManager | None = None):
+    def __init__(
+        self,
+        sock,
+        socket_manager: SocketManager | None = None,
+        *,
+        direction: str = "unknown",
+    ):
+        if direction not in {"incoming", "outgoing", "unknown"}:
+            raise ValueError("direction must be incoming, outgoing, or unknown")
         self.socket = sock
+        # Used by Peer to resolve simultaneous connections deterministically.
+        self.direction = direction
         self.socket_manager = socket_manager or SocketManager()
         self._send_lock = threading.Lock()
 
