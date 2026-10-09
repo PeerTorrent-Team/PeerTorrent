@@ -2,6 +2,7 @@ import threading
 
 from src.common.types import FileMetadata
 from src.storage.piece_storage import PieceStorage
+from src.pieces.verifier import verify_piece
 from .piece import Piece
 
 
@@ -27,29 +28,48 @@ class PieceManager:
                     f"got {piece_info.index}"
                 )
 
-            self._pieces.append(
-                Piece(
-                    index=piece_info.index,
-                    size=piece_info.size,
-                    expected_hash=piece_info.hash,
-                    data=None,
-                    is_complete=False,
-                )
+            # Create the piece as incomplete by default.
+            piece = Piece(
+                index=piece_info.index,
+                size=piece_info.size,
+                expected_hash=piece_info.hash,
+                data=None,
+                is_complete=False,
             )
+
+            # Restore a previously saved piece if it exists and is valid.
+            if self._storage.has_piece(piece_info.index):
+                try:
+                    data = self._storage.load_piece(piece_info.index)
+
+                    if (
+                        len(data) == piece_info.size
+                        and verify_piece(data, piece_info.hash)
+                    ):
+                        piece.data = data
+                        piece.is_complete = True
+
+                except (OSError, ValueError):
+                    # Keep unreadable or invalid pieces incomplete.
+                    pass
+
+            self._pieces.append(piece)
 
     def _validate_index(self, index: int) -> None:
         if not isinstance(index, int) or isinstance(index, bool):
             raise TypeError("piece index must be an integer")
 
         if index < 0 or index >= len(self._pieces):
-            raise IndexError(
-                f"Piece index out of range: {index}"
-            )
+            raise IndexError(f"Piece index out of range: {index}")
 
     def get_missing_pieces(self) -> list[int]:
         """Returns the pieces that have not been downloaded yet."""
         with self._lock:
-            return [piece.index for piece in self._pieces if not piece.is_complete]
+            return [
+                piece.index
+                for piece in self._pieces
+                if not piece.is_complete
+            ]
 
     def has_piece(self, index: int) -> bool:
         """Checks whether the peer already has a particular piece."""
@@ -64,7 +84,9 @@ class PieceManager:
             return self._pieces[index]
 
     def set_piece_data(self, index: int, data: bytes) -> None:
+        """Sets the data for a piece."""
         self._validate_index(index)
+
         if not isinstance(data, bytes):
             raise TypeError("piece data must be bytes")
 
@@ -83,10 +105,10 @@ class PieceManager:
             return all(piece.is_complete for piece in self._pieces)
 
     def piece_count(self) -> int:
-        """Return the total number of pieces."""
+        """Returns the total number of pieces."""
         return len(self._pieces)
 
     @property
     def storage(self) -> PieceStorage:
-        """Return the storage associated with this piece manager."""
+        """Returns the storage associated with this piece manager."""
         return self._storage
