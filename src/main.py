@@ -13,6 +13,11 @@ from src.pieces.metadata import calculate_file_id
 from src.pieces.metadata_serializer import load_metadata
 from src.pieces.piece_manager import PieceManager
 from src.peer.peer import Peer
+from src.selection.selector_factory import (
+    DEFAULT_STRATEGY,
+    SUPPORTED_STRATEGIES,
+    create_selector,
+)
 from src.storage.piece_storage import PieceStorage
 
 
@@ -65,6 +70,19 @@ def main() -> None:
         help=f"Tracker port (default: {DEFAULT_TRACKER_PORT}).",
     )
 
+    parser.add_argument(
+        "--strategy",
+        choices=SUPPORTED_STRATEGIES,
+        default=DEFAULT_STRATEGY,
+        help="Piece selection: rarest-first, sequential, or random.",
+    )
+
+    parser.add_argument(
+        "--no-upload",
+        action="store_true",
+        help="Do not upload pieces; used for the free-rider experiment.",
+    )
+
     args = parser.parse_args()
 
     metadata = load_metadata(args.metadata)
@@ -88,6 +106,8 @@ def main() -> None:
         host=args.host,
         port=args.port,
         storage=storage,
+        selector=create_selector(args.strategy),
+        upload_enabled=not args.no_upload,
     )
 
     peer._tracker_client.host = args.tracker_host
