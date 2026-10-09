@@ -22,7 +22,9 @@ def dummy_metadata():
 
 @pytest.fixture
 def mock_storage():
-    return Mock(spec=PieceStorage)
+    storage = Mock(spec=PieceStorage)
+    storage.has_piece.return_value = False
+    return storage
 
 def test_piece_manager_initial_state(dummy_metadata, mock_storage):
     pm = PieceManager(dummy_metadata, mock_storage)

@@ -1,7 +1,9 @@
 import json
 from pathlib import Path
 
+# pyrefly: ignore [missing-import]
 from src.common.types import FileMetadata, PieceInfo
+# pyrefly: ignore [missing-import]
 from src.pieces.hash_utils import calculate_file_hash, calculate_hash
 
 

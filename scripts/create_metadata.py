@@ -13,6 +13,14 @@ Or specify the output location and piece size:
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# Allow direct script execution from the project root without an editable install.
+_PROJECT_ROOT = str(Path(__file__).resolve().parents[1])
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
 import argparse
 
 from src.common.constants import DEFAULT_PIECE_SIZE

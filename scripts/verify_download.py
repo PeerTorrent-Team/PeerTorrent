@@ -1,74 +1,81 @@
-"""
-Create PeerTorrent metadata for a file.
+"""Verify a peer's stored pieces and reconstruct the completed download.
 
 Example:
-    python scripts/create_metadata.py data/input_files/sample.txt
-
-Or specify the output location and piece size:
-
-    python scripts/create_metadata.py data/input_files/sample.txt \
-        --output data/metadata/sample.json \
-        --piece-size 262144
+    python scripts/verify_download.py \\
+        --metadata data/metadata/sample.bin.json \\
+        --peer-id peer2 \\
+        --output data/downloads/sample.bin
 """
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+# Allow direct script execution from the project root without an editable install.
+_PROJECT_ROOT = str(Path(__file__).resolve().parents[1])
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
 import argparse
 
-from src.common.constants import DEFAULT_PIECE_SIZE
-from src.pieces.metadata_serializer import build_metadata, save_metadata
+from src.pieces.metadata import calculate_file_id
+from src.pieces.metadata_serializer import load_metadata
+from src.storage.file_workflow import verify_downloaded_file
+from src.storage.piece_storage import PieceStorage
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Create PeerTorrent metadata for a file."
+        description=(
+            "Verify all pieces for a peer, reconstruct the file, and "
+            "check its whole-file hash."
+        )
     )
-
     parser.add_argument(
-        "file",
-        help="Path to the file that will be shared.",
+        "--metadata", required=True, help="Metainfo JSON for the download."
     )
-
+    parser.add_argument(
+        "--peer-id", required=True, help="Peer ID whose pieces should be checked."
+    )
+    parser.add_argument(
+        "--storage",
+        default="data/peer_storage",
+        help="Base piece-storage directory (default: data/peer_storage).",
+    )
     parser.add_argument(
         "--output",
         default=None,
-        help="Output metadata JSON path.",
-    )
-
-    parser.add_argument(
-        "--piece-size",
-        type=int,
-        default=DEFAULT_PIECE_SIZE,
         help=(
-            f"Piece size in bytes "
-            f"(default: {DEFAULT_PIECE_SIZE})."
+            "Reconstructed output path (default: "
+            "data/downloads/<metainfo filename>)."
         ),
     )
-
     args = parser.parse_args()
 
-    metadata = build_metadata(
-        args.file,
-        args.piece_size,
+    metadata = load_metadata(args.metadata)
+    file_id = calculate_file_id(metadata)
+    storage = PieceStorage(
+        storage_dir=args.storage,
+        peer_id=args.peer_id,
+        file_id=file_id,
+    )
+    safe_file_name = Path(metadata.file_name.replace("\\", "/")).name
+    output_path = args.output or str(Path("data/downloads") / safe_file_name)
+
+    output = verify_downloaded_file(
+        metadata=metadata,
+        storage=storage,
+        output_path=output_path,
     )
 
-    if args.output is None:
-        output_path = f"data/metadata/{metadata.file_name}.json"
-    else:
-        output_path = args.output
-
-    save_metadata(
-        metadata,
-        output_path,
-    )
-
-    print("Metadata created successfully.")
-    print(f"File:         {metadata.file_name}")
-    print(f"File size:    {metadata.file_size} bytes")
-    print(f"Piece size:   {metadata.piece_size} bytes")
-    print(f"Piece count:  {metadata.piece_count}")
-    print(f"File hash:    {metadata.file_hash}")
-    print(f"Metadata:     {output_path}")
+    print("Download verification passed.")
+    print(f"Peer ID:       {args.peer_id}")
+    print(f"File:          {output}")
+    print(f"Bytes:         {metadata.file_size}")
+    print(f"Pieces checked:{metadata.piece_count:>4}")
+    if metadata.file_hash:
+        print(f"SHA-256:       {metadata.file_hash}")
 
 
 if __name__ == "__main__":

@@ -78,3 +78,16 @@ I used AI/Antigravity assistance for the M1 unit‑test work:
 - reviewing the test results and verification commands.
 
 The effort added unit tests for the Member 1 Pieces/Storage modules, and the final verification produced **12 passing tests**.
+
+=============================
+Rajneesh — M1 Seeding and Verification Workflow
+=============================
+
+I used AI assistance for the Member 1 Seeding and Storage Verification contribution:
+- reviewing and integrating the high-level seeding (`seed_source_file`) and verification (`verify_downloaded_file`) workflows in `src/storage/file_workflow.py`,
+- reviewing and verifying standalone CLI tools (`scripts/seed_file.py`, `scripts/verify_download.py`, and `scripts/create_metadata.py`),
+- fixing the `mock_storage` test fixture in `tests/test_piece_manager.py` to correctly reflect empty initial storage,
+- developing and running integration tests in `tests/test_file_workflow.py` covering piece staging, corrupt piece rollback, hash verification, and peer startup,
+- updating documentation in `README.md`, `docs/setup_guide.md`, and `docs/member1_pieces_storage_handoff.md`.
+
+All tests (91 passing), bytecode compilation, and end-to-end CLI verification were executed and validated.
