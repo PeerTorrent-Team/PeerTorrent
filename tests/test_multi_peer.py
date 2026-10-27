@@ -280,6 +280,36 @@ def test_choking_manager_unchokes_top_contributor_and_optimistic_peer():
     assert set(messages) == {("peer-a", "UNCHOKE"), ("peer-b", "UNCHOKE")}
 
 
+def test_choking_manager_rotates_optimistic_peer():
+    state = PeerState(total_pieces=1)
+    messages = []
+
+    for peer_id in ("peer-a", "peer-b", "peer-c"):
+        state.add_connected_peer(peer_id)
+        state.set_interested(peer_id, True)
+
+    downloaded = {"peer-a": 100, "peer-b": 50, "peer-c": 10}
+
+    manager = ChokingManager(
+        state,
+        send_message=lambda peer_id, kind: messages.append((peer_id, kind)),
+        bytes_downloaded_from_peer=lambda peer_id: downloaded[peer_id],
+        max_unchoked=2,
+    )
+
+    # Initially, peer-a gets the regular slot and peer-b the optimistic slot.
+    selected_first = manager.rebalance()
+    assert set(selected_first) == {"peer-a", "peer-b"}
+    assert len(selected_first) == 2
+
+    # Rotate the optimistic slot; peer-a should retain its regular slot.
+    selected_second = manager.rebalance(rotate_optimistic=True)
+    assert set(selected_second) == {"peer-a", "peer-c"}
+    assert len(selected_second) == 2
+    assert not state.is_choking("peer-a")
+    assert not state.is_choking("peer-c")
+    assert state.is_choking("peer-b")
+
 def test_peer_handshake_bitfield_and_scheduler_flow(tmp_path):
     peer = make_peer(tmp_path, parts=(b"hello", b"world"))
     peer._running = True

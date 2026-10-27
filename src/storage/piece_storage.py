@@ -2,18 +2,18 @@ import os
 import tempfile
 from pathlib import Path
 
-_DEFAULT_STORAGE_DIR = Path("data") / "peer_storage"
+from src.storage.paths import resolve_storage_root
 
 
 class PieceStorage:
     def __init__(
         self,
-        storage_dir: Path | str = _DEFAULT_STORAGE_DIR,
+        storage_dir: Path | str | None = None,
         *,
         peer_id: str | None = None,
         file_id: str | None = None,
     ) -> None:
-        base_dir = Path(storage_dir)
+        base_dir = resolve_storage_root(storage_dir)
 
         if peer_id is not None:
             base_dir = base_dir / peer_id

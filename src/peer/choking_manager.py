@@ -50,6 +50,7 @@ class ChokingManager:
             "unchoke_messages": 0,
             "optimistic_unchokes": 0,
         }
+        self._peer_choke_events: dict[str, dict[str, int]] = {}
         self._logger = logging.getLogger(__name__)
 
     def start(self) -> None:
@@ -129,24 +130,42 @@ class ChokingManager:
             for peer_id in sorted(connected):
                 should_unchoke = peer_id in selected_set
                 currently_unchoked = not self._state.is_choking(peer_id)
+
                 if should_unchoke and not currently_unchoked:
                     self._state.set_choking(peer_id, False)
                     self._send_message(peer_id, "UNCHOKE")
                     self._stats["unchoke_messages"] += 1
+
+                    events = self._peer_choke_events.setdefault(
+                        peer_id, {"choke": 0, "unchoke": 0}
+                    )
+                    events["unchoke"] += 1
+
                     if peer_id == self._optimistic_peer:
                         self._stats["optimistic_unchokes"] += 1
+
                 elif not should_unchoke and currently_unchoked:
                     self._state.set_choking(peer_id, True)
                     self._send_message(peer_id, "CHOKE")
                     self._stats["choke_messages"] += 1
 
+                    events = self._peer_choke_events.setdefault(
+                        peer_id, {"choke": 0, "unchoke": 0}
+                    )
+                    events["choke"] += 1
+
             self._stats["rebalances"] += 1
             return selected
 
-    def get_stats(self) -> dict[str, int | str | None]:
-        """Return a detached snapshot useful for tests and experiments."""
-        with self._lock:
-            return {**self._stats, "optimistic_peer": self._optimistic_peer}
+    def get_stats(self) -> dict[str, object]:
+     """Return a detached snapshot useful for tests and experiments."""
+     with self._lock:
+        return {
+            **self._stats,
+            "optimistic_peer": self._optimistic_peer,
+            "peer_choke_events": {
+                peer_id: dict(events)
+                for peer_id, events in self._peer_choke_events.items()},}
 
     def _loop(self) -> None:
         # Run one initial rebalance immediately, then rotate the optimistic

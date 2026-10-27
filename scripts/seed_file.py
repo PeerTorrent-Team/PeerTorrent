@@ -21,6 +21,11 @@ import argparse
 from src.pieces.metadata import calculate_file_id
 from src.pieces.metadata_serializer import load_metadata
 from src.storage.file_workflow import seed_source_file
+from src.storage.paths import (
+    DEFAULT_STORAGE_ROOT,
+    resolve_project_path,
+    resolve_storage_root,
+)
 
 
 def main() -> None:
@@ -36,17 +41,21 @@ def main() -> None:
     )
     parser.add_argument(
         "--storage",
-        default="data/peer_storage",
-        help="Base piece-storage directory (default: data/peer_storage).",
+        type=Path,
+        default=None,
+        help=f"Base piece-storage directory (default: {DEFAULT_STORAGE_ROOT}).",
     )
     args = parser.parse_args()
 
-    metadata = load_metadata(args.metadata)
+    metadata = load_metadata(resolve_project_path(args.metadata))
+    source_path = resolve_project_path(args.file)
+    storage_root = resolve_storage_root(args.storage)
+    print(f"Storage root: {storage_root}")
     storage = seed_source_file(
-        source_path=args.file,
+        source_path=source_path,
         metadata=metadata,
         peer_id=args.peer_id,
-        storage_root=args.storage,
+        storage_root=storage_root,
     )
 
     print("Seeder storage prepared successfully.")
@@ -54,7 +63,7 @@ def main() -> None:
     print(f"File:         {metadata.file_name}")
     print(f"File ID:      {calculate_file_id(metadata)}")
     print(f"Pieces ready: {metadata.piece_count}")
-    storage_path = Path(args.storage) / args.peer_id / calculate_file_id(metadata)
+    storage_path = storage_root / args.peer_id / calculate_file_id(metadata)
     print(f"Storage:      {storage_path}")
 
 

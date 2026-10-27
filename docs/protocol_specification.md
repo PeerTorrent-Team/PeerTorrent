@@ -1,53 +1,49 @@
-# Protocol Specification
+# PeerTorrent Protocol Specification
 
-This document defines how peers communicate in PeerTorrent during file sharing.
-
----
+This document describes the communication paths used by PeerTorrent: the HTTP/JSON tracker API and the TCP peer-to-peer protocol.
 
 ## 1. Protocol Overview
 
-PeerTorrent uses TCP connections for communication between peers.
+PeerTorrent uses the tracker to discover peers and uses direct TCP connections to exchange file pieces.
 
-The basic protocol flow is:
+```mermaid
+flowchart TD
+    Start[Start peer]
+    Announce[Announce to HTTP tracker]
+    List[Receive peer list]
+    Connect[Establish TCP peer connection]
+    Handshake[Exchange HANDSHAKE]
+    Availability[Exchange piece availability]
+    Select[Select required piece]
+    Request[Send REQUEST]
+    Receive[Receive PIECE]
+    Verify[Verify piece hash]
+    Store[Store verified piece]
+    Complete{All pieces available?}
+    Reconstruct[Reconstruct and verify file]
 
-```text id="k2q8qf"
-Start Peer
-    ↓
-Connect to Tracker
-    ↓
-Get Peer List
-    ↓
-Connect to Other Peers
-    ↓
-Handshake
-    ↓
-Exchange Piece Availability
-    ↓
-Select Required Piece
-    ↓
-Request Piece
-    ↓
-Receive Piece
-    ↓
-Verify Piece
-    ↓
-Store Piece
-    ↓
-Repeat Until Complete
-    ↓
-Reconstruct File
+    Start --> Announce --> List --> Connect --> Handshake
+    Handshake --> Availability --> Select --> Request --> Receive
+    Receive --> Verify --> Store --> Complete
+    Complete -- No --> Select
+    Complete -- Yes --> Reconstruct
 ```
 
----
+The diagram shows the general flow. Connection failures, unavailable pieces, and invalid data must be handled according to the relevant runtime logic.
 
-## 2. Tracker Communication (HTTP/JSON)
+## 2. Tracker Communication: HTTP/JSON
 
-The tracker exposes an HTTP API, by default at `http://127.0.0.1:6969`. It is used
-for peer discovery and swarm membership; it does not transfer file pieces.
+The tracker exposes an HTTP API. The documented default address is:
 
-### Announce
+```text
+http://127.0.0.1:6969
+```
 
-`POST /announce` with a JSON body:
+The tracker handles discovery and swarm membership; it does not transfer piece data.
+
+### `POST /announce`
+
+An announce request contains peer and file information. The documented fields include:
 
 ```json
 {
@@ -62,409 +58,170 @@ for peer discovery and swarm membership; it does not transfer file pieces.
 }
 ```
 
-A successful response is JSON with `ok: true`, `type: "ANNOUNCE_RESPONSE"`, and
-`peers`, a list of discovered peers excluding the announcing peer.
+A successful response includes `ok: true`, `type: "ANNOUNCE_RESPONSE"`, and a `peers` list containing discovered peers other than the announcing peer.
 
-### Get peers
+### `GET /peers`
 
-`GET /peers?peer_id=peer-1&file_id=<metainfo-file-id>` returns
-`type: "GET_PEERS_RESPONSE"` and a `peers` list. Query parameters must each occur
-once and must not be empty.
+Example:
 
-### Monitoring and health
-
-`GET /stats` reports total peers, seeders, leechers, uploaded bytes, and downloaded
-bytes. `GET /health` provides a simple liveness response. Invalid JSON and invalid
-fields return an HTTP 4xx response with a JSON error object; oversized announce
-bodies are rejected.
-
-The tracker maintains file-specific swarm membership and stale-peer expiry. Peer
-wire connections and piece transfers remain separate from this HTTP API.
-
----
-
-## 3. Peer Connection
-
-After receiving the peer list, the peer attempts to establish TCP connections with other peers.
-
-```text id="wq6y6s"
-Peer A ───────── TCP Connection ───────── Peer B
+```text
+GET /peers?peer_id=peer-1&file_id=<metainfo-file-id>
 ```
 
-Each active connection is managed by the network module.
+The response includes `type: "GET_PEERS_RESPONSE"` and a `peers` list. The documented API requires query parameters to occur once and not be empty.
 
-If a connection fails, the peer should continue operating and may attempt another connection.
+### `GET /health`
 
----
+Provides a basic tracker liveness response.
+
+### `GET /stats`
+
+Reports tracker statistics, including peer, seeder, leecher, uploaded-byte, and downloaded-byte counters.
+
+Invalid JSON and invalid fields produce HTTP 4xx responses with JSON error information. Oversized announce bodies are rejected.
+
+## 3. Peer Connections
+
+After discovering peers through the tracker, a peer attempts to establish TCP connections with them.
+
+```text
+Peer A ───────── TCP connection ───────── Peer B
+```
+
+The network module manages peer connections. A failed connection should not automatically terminate the entire download; the peer may continue using other available connections.
 
 ## 4. Handshake
 
-After establishing a connection, the peers exchange handshake messages.
+After establishing a connection, peers exchange `HANDSHAKE` messages. The handshake identifies the sender's peer ID and the file ID.
 
-```text id="5atxrl"
+```text
 Peer A                         Peer B
-  │                              │
-  │────── HANDSHAKE ────────────>│
-  │<───── HANDSHAKE ─────────────│
+  │────── HANDSHAKE ───────────>│
+  │<───── HANDSHAKE ────────────│
 ```
 
-The handshake contains:
-
-```text id="u5h4tq"
-peer_id
-file_id
-```
-
-A peer should verify that the received `file_id` corresponds to the file being shared before continuing.
-
----
+The received file ID should match the file associated with the active peer session before normal piece exchange continues.
 
 ## 5. Piece Availability
 
-After the handshake, peers exchange their current piece availability.
-
-```text id="qf1a5g"
-Peer A                         Peer B
-  │                              │
-  │────── BITFIELD ─────────────>│
-  │<───── BITFIELD ──────────────│
-```
-
-The bitfield indicates which pieces each peer currently has.
+Peers exchange piece-availability information, including `BITFIELD` messages. A bitfield indicates which pieces the sender currently has.
 
 For example:
 
-```text id="e8v9ki"
+```text
 Peer A: 1 1 0 0 1 0
 Peer B: 0 1 1 1 0 1
 ```
 
-Peer A can request pieces `2`, `3`, or `5` from Peer B.
+A peer can use the remote availability information to determine whether the remote peer has pieces it needs. Availability can change as peers acquire pieces; `HAVE` announces a newly obtained piece.
 
----
+## 6. Interest and Choking
 
-## 6. Interest
+A peer sends `INTERESTED` when the remote peer has pieces it needs. It sends `NOT_INTERESTED` when it currently needs no pieces from that peer.
 
-A peer compares the remote peer's available pieces with its own missing pieces.
+`CHOKE` temporarily prevents a peer from making piece requests to the sender. `UNCHOKE` allows requests again. The precise behavior depends on the peer's choking and request-management logic.
 
-If the remote peer has something it needs:
+## 7. Piece Requests and Transfers
 
-```text id="7klj9w"
-Peer A → Peer B
-INTERESTED
-```
+A peer requests a piece using a `REQUEST` message containing a `piece_index`.
 
-Otherwise:
-
-```text id="5n3e9u"
-Peer A → Peer B
-NOT_INTERESTED
-```
-
----
-
-## 7. Choking and Unchoking
-
-A peer may temporarily prevent another peer from requesting pieces using `CHOKE`.
-
-```text id="6u2qla"
-Peer A → Peer B
-CHOKE
-```
-
-When requests are allowed again:
-
-```text id="7n4z0d"
-Peer A → Peer B
-UNCHOKE
-```
-
-The initial implementation may keep this behavior simple. More advanced choking strategies can be added later through the `extensions/choking` module.
-
----
-
-## 8. Piece Request
-
-After a peer is interested and allowed to request pieces, it selects a required piece using the configured selection strategy.
-
-It then sends:
-
-```text id="a4g1ot"
-REQUEST {
-    piece_index
+```json
+{
+  "type": "REQUEST",
+  "payload": {
+    "piece_index": 4
+  }
 }
 ```
 
-Example:
+If the requested piece is available, the receiving peer can respond with a `PIECE` message containing the piece index and data. The message format and Base64 representation of binary data are documented in `message_format.md`.
 
-```text id="f3l6jh"
-Peer A → Peer B
-REQUEST {
-    piece_index: 4
-}
+A peer should not serve invalid piece data when a requested piece is unavailable.
+
+## 8. Cancellation
+
+A `CANCEL` message identifies a piece request that the sender no longer wants fulfilled.
+
+The receiving peer asks its upload manager to update tracking state for the relevant peer and piece. Cancellation does not necessarily interrupt data already being transmitted.
+
+## 9. Piece Verification
+
+After receiving piece data, the peer checks it against the expected piece hash from metadata.
+
+```text
+Received piece data
+        ↓
+Calculate piece hash
+        ↓
+Compare with expected hash
+        ↓
+  ┌─────┴─────┐
+  Match     Mismatch
+    ↓           ↓
+Accept and    Reject as
+store piece   invalid data
 ```
 
----
+Only successfully verified pieces should be treated as valid. Once a piece is accepted, the peer updates its local piece state and can notify connected peers using `HAVE`.
 
-## 9. Piece Transfer
+## 10. Download Loop
 
-The receiving peer checks whether it has the requested piece.
+A simplified download loop is:
 
-If available, it sends:
+1. Determine which pieces are missing.
+2. Check availability from connected peers.
+3. Select a required piece using the configured strategy.
+4. Request the piece from a peer that has it.
+5. Receive and decode the response.
+6. Verify the piece.
+7. Store valid data and update local state.
+8. Announce new availability.
+9. Repeat until all required pieces have been obtained.
 
-```text id="0m6r5x"
-PIECE {
-    piece_index
-    data
-}
-```
+The piece-selection strategy can be changed independently of the message definitions.
 
-The basic exchange is:
+## 11. File Reconstruction
 
-```text id="1u9lrv"
-Peer A                         Peer B
-  │                              │
-  │────── REQUEST(4) ───────────>│
-  │                              │
-  │<───── PIECE(4, data) ────────│
-```
+When all required pieces have been obtained and verified, the file can be reconstructed by ordering pieces by index and combining their data.
 
----
+The resulting file should be checked against the metadata, including file size and whole-file hash when available.
 
-## 10. Piece Verification
+## 12. Upload Flow
 
-After receiving a piece, the peer verifies its data using the expected piece hash stored in the metadata.
+When a peer receives a piece request, the upload path broadly follows these steps:
 
-```text id="1j7r8p"
-Received Data
-     ↓
-Calculate Hash
-     ↓
-Compare With Expected Hash
-     ↓
- ┌───────────────┐
- │               │
-Match          Mismatch
- │               │
- ↓               ↓
-Store          Reject
-Piece          Piece
-```
+1. Validate the request.
+2. Check whether the requested piece exists.
+3. Read the piece from storage.
+4. Construct the `PIECE` message.
+5. Encode and transmit the response.
 
-A successfully verified piece is marked as complete.
+Requests for unavailable or invalid pieces should be handled safely.
 
-If verification fails, the piece should not be stored as a valid piece.
+## 13. Connection Failures and Invalid Messages
 
----
+A peer should handle connection loss by updating connection and peer state and continuing with other usable peers where possible.
 
-## 11. Have Message
+Incoming messages should be framed, decoded, checked for a recognized type, and validated before being passed to peer logic. Invalid or incomplete messages should be rejected safely.
 
-After successfully receiving and verifying a piece, the peer informs connected peers.
+A corrupted piece must not be accepted as verified data.
 
-```text id="5k0q2v"
-HAVE {
-    piece_index
-}
-```
+## 14. Protocol Rules
 
-Example:
+1. Peer-to-peer connections use TCP.
+2. The tracker is used for peer discovery, not piece transfer.
+3. A handshake identifies the peer and active file.
+4. Piece availability should be exchanged before selecting a piece.
+5. A peer should request pieces it still needs.
+6. Received piece data must be verified before it is accepted as valid.
+7. New piece availability can be announced with `HAVE`.
+8. Invalid messages and corrupted data must be handled safely.
+9. A failed peer connection should not necessarily stop the entire download.
+10. Tracker HTTP messages and peer wire messages are distinct protocols.
 
-```text id="q0p4r9"
-Peer A → Peer B
-HAVE {
-    piece_index: 4
-}
-```
+## 15. Related Documentation
 
-This allows other peers to update their piece availability information.
-
----
-
-## 12. Download Loop
-
-The peer repeats the following process until all pieces are obtained:
-
-```text id="s8k1cz"
-Check Missing Pieces
-       ↓
-Check Peer Availability
-       ↓
-Select Piece
-       ↓
-Send REQUEST
-       ↓
-Receive PIECE
-       ↓
-Verify
-       ↓
-Store
-       ↓
-Send HAVE
-       ↓
-Repeat
-```
-
-The piece-selection strategy can be changed without changing the basic network protocol.
-
----
-
-## 13. File Reconstruction
-
-When all pieces have been successfully downloaded:
-
-```text id="1x6jtc"
-All Pieces Available
-       ↓
-Order Pieces by Index
-       ↓
-Combine Piece Data
-       ↓
-Reconstruct Original File
-```
-
-The reconstructed file is written to the configured download location.
-
----
-
-## 14. Upload Flow
-
-When another peer requests a piece, the upload process is:
-
-```text id="v5d2lp"
-Receive REQUEST
-       ↓
-Check Piece Exists
-       ↓
-Read Piece From Storage
-       ↓
-Create PIECE Message
-       ↓
-Encode Message
-       ↓
-Send to Peer
-```
-
-If the requested piece is unavailable, the peer should not send invalid piece data.
-
----
-
-## 15. Connection Failure
-
-If a peer connection is lost:
-
-```text id="x0s5ge"
-Connection Lost
-      ↓
-Remove Connection
-      ↓
-Update Peer State
-      ↓
-Continue With Other Peers
-```
-
-A single failed connection should not terminate the entire download.
-
----
-
-## 16. Message Handling
-
-All incoming messages follow this basic process:
-
-```text id="j2c8wk"
-Receive Bytes
-     ↓
-Decode Message
-     ↓
-Identify Message Type
-     ↓
-Validate Payload
-     ↓
-Handle Message
-     ↓
-Update Peer State
-```
-
-Invalid messages should be rejected safely.
-
----
-
-## 17. Complete Communication Example
-
-A simplified complete interaction is:
-
-```text id="4h6z3s"
-Peer A                         Tracker
-  │                              │
-  │──── Register / Request ─────>│
-  │<────── Peer List ────────────│
-  │                              │
-  │
-  │                         Peer B
-  │                              │
-  │────── HANDSHAKE ────────────>│
-  │<───── HANDSHAKE ─────────────│
-  │                              │
-  │────── BITFIELD ─────────────>│
-  │<───── BITFIELD ──────────────│
-  │                              │
-  │────── INTERESTED ───────────>│
-  │<───── UNCHOKE ───────────────│
-  │                              │
-  │────── REQUEST ──────────────>│
-  │<───── PIECE ─────────────────│
-  │                              │
-  │────── HAVE ─────────────────>│
-  │                              │
-  │       Repeat until complete  │
-```
-
----
-
-## 18. Protocol Rules
-
-1. TCP is used for peer-to-peer communication.
-2. A handshake must occur before normal piece exchange.
-3. Peers must identify the file they are sharing.
-4. Piece availability should be exchanged before selecting pieces.
-5. A peer should request only pieces it does not already have.
-6. Received pieces must be verified before being stored.
-7. Successfully obtained pieces should be announced using `HAVE`.
-8. Invalid messages or corrupted pieces should not crash the peer.
-9. A failed peer connection should not stop the entire download.
-10. The tracker is used for peer discovery and does not transfer file pieces.
-
----
-
-## 19. Relationship With Other Modules
-
-```text id="3a8f6v"
-Tracker
-   ↓
-Peer Discovery
-
-Network
-   ↓
-TCP Connections
-
-Protocol
-   ↓
-Handshake + Message Encoding/Decoding
-
-Piece Manager
-   ↓
-Piece State
-
-Selection
-   ↓
-Next Piece
-
-Storage
-   ↓
-Save / Load Pieces
-
-Peer
-   ↓
-Coordinates Everything
-```
-
-The protocol defines **how peers communicate**, while `message_format.md` defines **what each message contains** and `module_interfaces.md` defines **how the software modules interact internally**.
+- `message_format.md` describes peer message types, payloads, and TCP framing.
+- `module_interfaces.md` describes internal software-module responsibilities and interfaces.
+- `architecture.md` describes the system components and their relationships.
+- `setup_guide.md` describes how to run the tracker, peers, and verification workflow.

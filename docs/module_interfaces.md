@@ -1,406 +1,178 @@
-# Module Interfaces
+# PeerTorrent Module Interfaces
 
-This document defines the main functions exposed by each module so that different team members can develop their components independently.
-
----
+This document describes the main responsibilities and conceptual interfaces of PeerTorrent's modules. The concrete Python method signatures and return types are determined by the implementation in `src/`.
 
 ## 1. Common Types
 
+The common data concepts include:
+
 ### `PeerInfo`
 
-* `peer_id` — Unique identifier of the peer.
-* `ip` — IP address of the peer.
-* `port` — Port used by the peer.
+Represents a peer participating in a swarm. Relevant information includes its peer ID, IP address, and listening port.
 
 ### `PieceInfo`
 
-* `index` — Index of the piece in the file.
-* `size` — Size of the piece in bytes.
-* `hash` — Expected hash of the piece.
+Represents a piece within a file. Relevant information includes the piece index, size, and expected hash.
 
 ### `FileMetadata`
 
-* `file_name` — Name of the original file.
-* `file_size` — Size of the original file.
-* `piece_size` — Size of each piece.
-* `piece_count` — Total number of pieces.
-* `pieces` — Hash information for all pieces.
+Describes the shared file, including its name, size, piece size, piece count, and per-piece hash information.
 
----
+Use the actual definitions in `src/common/types.py` and the metadata implementation as the source of truth for concrete fields.
 
-## 2. Pieces & Storage
+## 2. Pieces and Storage
 
-### `PieceManager`
+### Piece management
 
-```text
-get_missing_pieces()
-```
+The piece-management layer tracks the pieces associated with a file and the local peer's progress.
 
-Returns the pieces that have not been downloaded yet.
+Its responsibilities include:
 
-```text
-has_piece(index)
-```
+- Determining which pieces are missing.
+- Checking whether a piece is available locally.
+- Providing piece information or data.
+- Updating completion state.
+- Determining whether all pieces are available.
 
-Checks whether the peer already has a particular piece.
+The main implementation is under `src/pieces/`.
 
-```text
-get_piece(index)
-```
+### Piece storage
 
-Returns information or data for the requested piece.
+The storage layer persists pieces and retrieves them when needed.
 
-```text
-mark_piece_complete(index)
-```
+Its responsibilities include:
 
-Marks a piece as successfully downloaded.
+- Saving piece data.
+- Loading stored pieces.
+- Checking local piece availability.
+- Managing the on-disk representation of pieces.
 
-```text
-is_complete()
-```
+The main implementation is under `src/storage/`.
 
-Checks whether all pieces have been downloaded.
+### File operations
 
-### `PieceStorage`
-
-```text
-save_piece(index, data)
-```
-
-Stores the downloaded piece on disk.
-
-```text
-load_piece(index)
-```
-
-Loads a stored piece from disk.
-
-```text
-has_piece(index)
-```
-
-Checks whether a piece exists in local storage.
-
-### `FileManager`
-
-```text
-split_file(file_path, piece_size)
-```
-
-Splits the input file into fixed-size pieces.
-
-```text
-reconstruct_file(pieces, output_path)
-```
-
-Combines the downloaded pieces to recreate the original file.
-
----
+File operations support preparing source data and reconstructing an output from ordered pieces. Reconstructed content should be based on valid, verified piece data.
 
 ## 3. Tracker
 
-### `PeerRegistry`
+The tracker provides peer registration and discovery for file-specific swarms.
 
-```text
-register_peer(peer)
-```
+### Peer registry
 
-Adds a peer to the tracker's registry.
+The peer registry maintains information about peers known to the tracker. Its responsibilities include registering, removing, and looking up peers.
 
-```text
-remove_peer(peer_id)
-```
+### Swarm manager
 
-Removes a peer from the registry.
+The swarm manager associates peers with the files they are sharing and provides peer information for a particular file swarm.
 
-```text
-get_peer(peer_id)
-```
+### Tracker server
 
-Returns information about a specific peer.
+The tracker server receives HTTP requests, validates them, and returns the appropriate response. The documented endpoints include `/health`, `/stats`, `/peers`, and `/announce`.
 
-```text
-get_peers()
-```
-
-Returns the currently registered peers.
-
-### `SwarmManager`
-
-```text
-add_peer(file_id, peer)
-```
-
-Adds a peer to the swarm for a particular file.
-
-```text
-remove_peer(file_id, peer_id)
-```
-
-Removes a peer from a file's swarm.
-
-```text
-get_peers(file_id)
-```
-
-Returns peers currently sharing the requested file.
-
-### `TrackerServer`
-
-```text
-handle_request(request)
-```
-
-Processes tracker requests and returns the appropriate response.
-
----
+The tracker implementation is under `src/tracker/`. The tracker provides discovery and swarm management; it does not transfer file pieces.
 
 ## 4. Protocol
 
-### `Message`
+The protocol layer defines the messages used between peers.
 
-Represents a P2P message containing a message type and its payload.
+### Message representation
 
-```text
-Message(type, payload)
-```
+A peer message contains a message type and a payload.
 
-Creates a message with the specified type and data.
+### Encoder and decoder
 
-### `Encoder`
+The encoder serializes messages for transmission. The decoder converts received payload bytes into messages and validates their structure.
 
-```text
-encode(message)
-```
+### Handshake
 
-Converts a message into bytes for network transmission.
+The handshake identifies the peer and the file ID associated with the active session.
 
-### `Decoder`
-
-```text
-decode(data)
-```
-
-Converts received bytes back into a message.
-
-### `Handshake`
-
-```text
-create_handshake(peer_id, file_id)
-```
-
-Creates the initial handshake message between two peers.
-
-```text
-validate_handshake(handshake)
-```
-
-Checks whether a received handshake is valid.
-
----
+The implementation is under `src/protocol/`. See `message_format.md` for message types and framing details.
 
 ## 5. Network
 
-### `Connection`
+The network layer manages TCP connections and the movement of encoded messages.
 
-```text
-connect()
-```
+Its responsibilities include:
 
-Establishes a TCP connection with another peer.
+- Creating and managing sockets.
+- Establishing peer connections.
+- Sending and receiving messages.
+- Tracking active connections.
+- Closing connections and handling connection failures.
 
-```text
-send_message(message)
-```
+The implementation is under `src/network/`.
 
-Sends an encoded message to the connected peer.
+## 6. Peer Runtime
 
-```text
-receive_message()
-```
+The peer runtime integrates the tracker client, networking, protocol handling, piece management, and storage.
 
-Receives and decodes a message from the peer.
+### Download manager
 
-```text
-close()
-```
+Coordinates the downloading side of the peer, including selecting requests to make, handling received piece data, and updating download state.
 
-Closes the network connection.
+### Upload manager
 
-### `ConnectionPool`
+Handles incoming piece requests, checks local availability, reads requested pieces from storage, and sends piece data to requesting peers.
 
-```text
-add(connection)
-```
+### Request manager
 
-Adds an active connection to the pool.
+Tracks piece requests and related state so that requests can be coordinated and completed or cancelled as needed.
 
-```text
-remove(peer_id)
-```
+### Scheduler
 
-Removes a peer's connection from the pool.
+Coordinates peer actions such as selecting pieces, making requests, and processing transfer progress.
 
-```text
-get(peer_id)
-```
+### Peer state
 
-Returns the connection for a specific peer.
+Maintains the runtime information needed by the peer, such as connected peers, piece availability, and request state.
 
-```text
-get_all()
-```
+### Choking manager
 
-Returns all active peer connections.
+Coordinates choking-related behavior that determines whether a peer may make piece requests to another peer.
 
----
-
-## 6. Peer
-
-### `DownloadManager`
-
-```text
-request_piece(peer, piece_index)
-```
-
-Requests a specific piece from another peer.
-
-```text
-handle_piece(piece)
-```
-
-Processes a received piece and updates local state.
-
-### `UploadManager`
-
-```text
-handle_request(peer, piece_index)
-```
-
-Handles a request for a piece from another peer.
-
-```text
-send_piece(peer, piece_index)
-```
-
-Reads and sends the requested piece.
-
-### `Scheduler`
-
-```text
-schedule()
-```
-
-Coordinates which peer and piece should be processed next.
-
-### `Peer`
-
-```text
-start()
-```
-
-Starts the peer and its required components.
-
-```text
-stop()
-```
-
-Stops the peer and closes its connections.
-
----
+The peer runtime is centered on `src/peer/peer.py`; related implementations live in `src/peer/`.
 
 ## 7. Piece Selection
 
-All piece-selection strategies should provide:
+The selection implementations are under `src/selection/`.
 
-```text
-select_piece(missing_pieces, availability)
+The documented strategies are:
+
+- `SequentialSelector` — selects pieces in sequential order.
+- `RandomSelector` — selects an available required piece randomly.
+- `RarestFirstSelector` — prioritizes required pieces that are less commonly available among connected peers.
+
+Selection is concerned with which piece to request. The peer and download-management components coordinate the actual request and transfer.
+
+## 8. High-Level Dependencies
+
+```mermaid
+flowchart TD
+    Peer[Peer Runtime]
+    Tracker[Tracker Client / Discovery]
+    Network[Network Connections]
+    Protocol[Peer Protocol]
+    Selection[Piece Selection]
+    Pieces[Piece Management / Verification]
+    Storage[Persistent Storage]
+
+    Peer --> Tracker
+    Peer --> Network
+    Network --> Protocol
+    Peer --> Selection
+    Peer --> Pieces
+    Pieces --> Storage
 ```
 
-Selects the next piece that should be downloaded.
+This is a conceptual dependency diagram, not a complete call graph. The exact interactions are defined by the current implementation.
 
-### Inputs
+## 9. Interface and Documentation Rules
 
-*missing_pieces*
+- Treat the source code as authoritative for actual method names, arguments, and return types.
+- Keep message definitions consistent with `message_format.md`.
+- Keep tracker API details consistent with `protocol_specification.md`.
+- Keep architecture descriptions consistent with `architecture.md`.
+- Verify behavior with tests rather than relying on an interface description alone.
 
-A collection of piece indices that the local peer still needs to download.
-
-Example:
-
-python
-missing_pieces = [0, 2, 4, 7]
-
-
-*availability*
-
-A mapping where each piece index is associated with the number of connected peers that currently have that piece.
-
-Example:
-
-python
-availability = {
-    0: 3,
-    2: 1,
-    4: 4,
-    7: 2
-}
-
-
-In this example, piece 2 is available from only one peer, while piece 4 is available from four peers.
-
-The availability information is used by the RarestFirstSelector to select the least commonly available required piece.
-
-### Return Value
-
-select_piece() returns the selected piece index.
-
-If there are no missing pieces available for selection, the selector should return None.
-
-### Implementations
-
-```text
-SequentialSelector
-```
-
-Selects pieces in sequential order.
-
-```text
-RandomSelector
-```
-
-Selects an available piece randomly.
-
-```text
-RarestFirstSelector
-```
-
-Selects the least commonly available piece.
-
----
-
-## 8. Module Dependencies
-
-The main dependencies between modules are:
-
-```text
-Peer
- ├── Tracker
- ├── Network
- ├── Protocol
- ├── PieceManager
- ├── Storage
- └── Selection
-
-Tracker
- ├── PeerRegistry
- └── SwarmManager
-
-Network
- └── Protocol
-
-PieceManager
- └── Storage
-```
-
-The interfaces above are kept intentionally small so that team members can implement their modules independently while following the same function names and responsibilities.
+The purpose of these boundaries is to make responsibilities understandable and to reduce unnecessary coupling between modules.

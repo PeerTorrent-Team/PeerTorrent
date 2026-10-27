@@ -16,6 +16,7 @@ from src.pieces.hash_utils import calculate_file_hash
 from src.pieces.metadata import calculate_file_id
 from src.pieces.verifier import verify_piece
 from src.storage.file_manager import reconstruct_file
+from src.storage.paths import resolve_project_path, resolve_storage_root
 from src.storage.piece_storage import PieceStorage
 
 
@@ -23,7 +24,7 @@ def seed_source_file(
     source_path: str | Path,
     metadata: FileMetadata,
     peer_id: str,
-    storage_root: str | Path = "data/peer_storage",
+    storage_root: str | Path | None = None,
 ) -> PieceStorage:
     """Validate a source file against metainfo and populate a seeder's store.
 
@@ -34,7 +35,7 @@ def seed_source_file(
     if not isinstance(peer_id, str) or not peer_id.strip():
         raise ValueError("peer_id must be a non-empty string")
 
-    source = Path(source_path)
+    source = resolve_project_path(source_path)
     if not source.is_file():
         raise FileNotFoundError(f"Source file not found: {source}")
 
@@ -44,7 +45,7 @@ def seed_source_file(
             f"expected {metadata.file_size}, got {source.stat().st_size}"
         )
 
-    root = Path(storage_root)
+    root = resolve_storage_root(storage_root)
     root.mkdir(parents=True, exist_ok=True)
 
     # Stage validated pieces outside the permanent peer store. This prevents a
@@ -131,7 +132,7 @@ def verify_downloaded_file(
 
         verified_pieces.append((info.index, data))
 
-    output = Path(output_path)
+    output = resolve_project_path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
 
     # Keep the temporary file in the destination directory so os.replace is

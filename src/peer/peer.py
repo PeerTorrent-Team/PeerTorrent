@@ -60,6 +60,7 @@ class Peer:
         max_connections: int | None = None,
         upload_enabled: bool = True,
         choking_interval: float = CHOKING_INTERVAL,
+        upload_rate_limit: int | None = None,
     ) -> None:
 
         if not isinstance(peer_id, str) or not peer_id.strip():
@@ -139,6 +140,7 @@ class Peer:
         self._upload_manager = UploadManager(
             storage=self._storage,
             state=self._state,
+            upload_rate_limit=upload_rate_limit,
         )
 
         # Rarest-first is the normal operating mode; experiments can inject

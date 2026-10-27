@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import argparse
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -188,6 +189,10 @@ def _reap_stale_peers_loop(tracker: TrackerServer) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Run the PeerTorrent HTTP tracker.")
+    parser.add_argument("--host", default=DEFAULT_TRACKER_HOST)
+    parser.add_argument("--port", type=int, default=DEFAULT_TRACKER_PORT)
+    args = parser.parse_args()
     registry = PeerRegistry()
     swarms = SwarmManager(registry)
     tracker = TrackerServer(registry, swarms)
@@ -201,12 +206,12 @@ def main() -> None:
     reap_thread.start()
 
     server = TrackerHTTPServer(
-        (DEFAULT_TRACKER_HOST, DEFAULT_TRACKER_PORT),
+        (args.host, args.port),
         tracker,
     )
     print(
         "HTTP tracker listening at "
-        f"http://{DEFAULT_TRACKER_HOST}:{DEFAULT_TRACKER_PORT}"
+        f"http://{args.host}:{args.port}"
     )
     print("Endpoints: POST /announce, GET /peers, GET /stats, GET /health")
 
