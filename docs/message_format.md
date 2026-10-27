@@ -1,12 +1,10 @@
-# Message Format
+# PeerTorrent Message Format
 
-This document defines the basic structure and format of messages exchanged between peers in PeerTorrent.
-
----
+This document describes the peer-to-peer messages used by PeerTorrent. The tracker uses a separate HTTP/JSON API; its requests and responses are described in `protocol_specification.md`.
 
 ## 1. General Message Structure
 
-Every P2P message contains two main parts:
+A peer message has two main fields:
 
 ```text
 Message
@@ -14,50 +12,43 @@ Message
 └── payload
 ```
 
-* `type` — Identifies what the message is used for.
-* `payload` — Contains the data required for that message.
+- `type` identifies the message purpose.
+- `payload` contains the data associated with that message.
 
-Messages are converted into bytes before being sent through a TCP connection.
-
----
+Messages are serialized to bytes before transmission over a TCP connection.
 
 ## 2. Message Types
 
-The main message types are:
-
-| Message          | Purpose                                            |
-| ---------------- | -------------------------------------------------- |
-| `HANDSHAKE`      | Establishes communication between two peers        |
-| `BITFIELD`       | Tells a peer which pieces are available            |
-| `HAVE`           | Announces that a peer has obtained a new piece     |
-| `REQUEST`        | Requests a specific piece from another peer        |
-| `PIECE`          | Sends the requested piece data                     |
-| `INTERESTED`     | Indicates interest in pieces held by another peer  |
-| `NOT_INTERESTED` | Indicates that no required pieces are available    |
-| `CHOKE`          | Temporarily prevents a peer from requesting pieces |
-| `UNCHOKE`        | Allows a peer to request pieces                    |
-
----
+| Message | Purpose |
+| --- | --- |
+| `HANDSHAKE` | Identifies the peer and file being shared |
+| `BITFIELD` | Reports which pieces the peer currently has |
+| `HAVE` | Announces that a peer has obtained a piece |
+| `REQUEST` | Requests a specific piece |
+| `PIECE` | Carries requested piece data |
+| `CANCEL` | Cancels a pending upload request for a piece |
+| `INTERESTED` | Indicates that the sender needs pieces held by the receiver |
+| `NOT_INTERESTED` | Indicates that the sender currently needs no pieces from the receiver |
+| `CHOKE` | Temporarily prevents the receiver from making piece requests |
+| `UNCHOKE` | Allows the receiver to make piece requests |
 
 ## 3. Wire Framing and Serialization
 
-All peer-to-peer messages are transmitted using a TCP framing format:
+Peer-to-peer messages use this TCP framing format:
 
 ```text
 [4-byte big-endian unsigned length][JSON payload bytes]
 ```
 
-The 4-byte length prefix encodes the number of bytes in the JSON payload that follows. Each frame is sent as a complete payload and then decoded on the receiving side. This framing is handled by the socket/connection layer before the message is passed to the protocol decoder.
+The length prefix specifies the number of bytes in the JSON payload that follows. The connection layer is responsible for reading the frame; the protocol decoder converts the payload into a message.
 
-When a `PIECE` payload is serialized, the `data` field is encoded as Base64 text inside JSON, and when the JSON is decoded the receiver converts it back to raw bytes. This keeps the binary payload safe for JSON transport.
+For `PIECE` messages, the binary `data` field is encoded as Base64 text inside JSON. The receiver decodes that field back to bytes before processing the piece.
 
-Every decoded message is validated before it is accepted for peer processing.
-
----
+Decoded messages must be validated before being accepted by peer logic.
 
 ## 4. Message Representation
 
-A message can be represented internally as:
+Conceptually, a message is represented as:
 
 ```text
 Message {
@@ -68,217 +59,191 @@ Message {
 
 For example:
 
-```text
-Message {
-    type: REQUEST
-    payload: {
-        piece_index: 4
-    }
+```json
+{
+  "type": "REQUEST",
+  "payload": {
+    "piece_index": 4
+  }
 }
 ```
 
-The exact Python representation can be implemented by the protocol module.
+This is a format illustration; actual field validation and serialization are handled by the implementation.
 
----
+## 5. HANDSHAKE
 
-## 5. Handshake Message
+The handshake identifies the connecting peer and the file swarm:
 
-The handshake is the first message exchanged between two peers.
-
-```text
-HANDSHAKE {
-    peer_id
-    file_id
+```json
+{
+  "type": "HANDSHAKE",
+  "payload": {
+    "peer_id": "peer-1",
+    "file_id": "<file-id>"
+  }
 }
 ```
 
-* `peer_id` identifies the sending peer.
-* `file_id` identifies the file being shared.
+- `peer_id` identifies the sender.
+- `file_id` identifies the file being shared.
 
-A peer should validate the handshake before continuing with normal communication.
+A peer should validate the handshake and confirm that the file ID matches the active file before continuing with normal piece exchange.
 
----
+## 6. BITFIELD
 
-## 6. Bitfield Message
+The bitfield describes piece availability:
 
-The bitfield tells another peer which pieces are currently available.
-
-```text
-BITFIELD {
-    pieces: [0, 1, 0, 1, 1, 0]
+```json
+{
+  "type": "BITFIELD",
+  "payload": {
+    "pieces": [1, 0, 1, 1, 0, 1]
+  }
 }
 ```
 
-Here, `1` means the peer has the piece and `0` means it does not.
+Each entry corresponds to a piece index. `1` indicates that the piece is available; `0` indicates that it is not.
 
-For example:
+## 7. HAVE
 
-```text
-Piece:    0 1 2 3 4 5
-Available:1 0 1 1 0 1
-```
+Sent when a peer obtains a new piece successfully:
 
----
-
-## 7. Have Message
-
-Sent when a peer successfully obtains a new piece.
-
-```text
-HAVE {
-    piece_index
+```json
+{
+  "type": "HAVE",
+  "payload": {
+    "piece_index": 4
+  }
 }
 ```
 
-Example:
+Other connected peers can use this information to update their view of the sender's piece availability.
 
-```text
-HAVE {
-    piece_index: 4
+## 8. REQUEST
+
+Requests a specific piece:
+
+```json
+{
+  "type": "REQUEST",
+  "payload": {
+    "piece_index": 7
+  }
 }
 ```
 
-This allows connected peers to update their knowledge of piece availability.
+The receiving peer checks whether the requested piece is available before serving it.
 
----
+## 9. PIECE
 
-## 8. Request Message
+Carries the requested piece index and its data:
 
-Used when a peer wants to download a particular piece.
-
-```text
-REQUEST {
-    piece_index
+```json
+{
+  "type": "PIECE",
+  "payload": {
+    "piece_index": 7,
+    "data": "<Base64-encoded piece bytes>"
+  }
 }
 ```
 
-Example:
+The `data` value shown here is a placeholder. On the wire, binary piece data is represented as Base64 text inside the JSON payload. After decoding, the receiver should verify the piece against the expected hash before treating it as valid.
 
-```text
-REQUEST {
-    piece_index: 7
+## 10. CANCEL
+
+Indicates that a peer no longer wants a particular piece to be uploaded:
+
+```json
+{
+  "type": "CANCEL",
+  "payload": {
+    "piece_index": 4
+  }
 }
 ```
 
-The receiving peer checks whether it has the requested piece before sending it.
+The upload manager updates its tracking state for the request associated with the sending peer and piece index. Receiving a cancellation does not necessarily interrupt data that is already being transmitted.
 
----
+## 11. INTERESTED and NOT_INTERESTED
 
-## 9. Piece Message
+These messages have empty payloads.
 
-Contains the actual requested piece data.
-
-```text
-PIECE {
-    piece_index
-    data
+```json
+{
+  "type": "INTERESTED",
+  "payload": {}
 }
 ```
 
-Example:
+`INTERESTED` indicates that the sender needs one or more pieces held by the receiver.
 
-```text
-PIECE {
-    piece_index: 7
-    data: <piece bytes>
+```json
+{
+  "type": "NOT_INTERESTED",
+  "payload": {}
 }
 ```
 
-The receiver verifies the piece before storing it.
+`NOT_INTERESTED` indicates that the sender currently does not need any pieces from the receiver.
 
----
+## 12. CHOKE and UNCHOKE
 
-## 10. Interested / Not Interested
+These messages have empty payloads.
 
-### `INTERESTED`
-
-Indicates that the peer has discovered pieces it needs from the other peer.
-
-```text
-INTERESTED {
+```json
+{
+  "type": "CHOKE",
+  "payload": {}
 }
 ```
 
-### `NOT_INTERESTED`
+`CHOKE` indicates that the receiver should temporarily stop making piece requests to the sender.
 
-Indicates that the peer currently does not need any pieces from the other peer.
-
-```text
-NOT_INTERESTED {
+```json
+{
+  "type": "UNCHOKE",
+  "payload": {}
 }
 ```
 
-These messages contain no additional data.
+`UNCHOKE` indicates that piece requests are allowed again.
 
----
-
-## 11. Choke / Unchoke
-
-### `CHOKE`
-
-Indicates that the receiving peer should temporarily stop requesting pieces.
+## 13. Encoding Flow
 
 ```text
-CHOKE {
-}
-```
-
-### `UNCHOKE`
-
-Indicates that the receiving peer may continue requesting pieces.
-
-```text
-UNCHOKE {
-}
-```
-
-These messages contain no additional data.
-
----
-
-## 11. Encoding
-
-Before transmission:
-
-```text
-Message
-   ↓
+Message object
+    ↓
 Encoder
-   ↓
-Bytes
-   ↓
-TCP Connection
+    ↓
+JSON payload bytes
+    ↓
+4-byte length prefix + payload
+    ↓
+TCP connection
 ```
 
-The `Encoder` converts the message into a byte representation suitable for network transmission.
+The encoder and decoder must agree on the message schema and serialization format.
 
-The exact serialization method should be consistent across all peers.
-
----
-
-## 12. Decoding
-
-When a message is received:
+## 14. Decoding Flow
 
 ```text
-TCP Connection
-   ↓
-Bytes
-   ↓
-Decoder
-   ↓
-Message
+TCP connection
+    ↓
+Read length prefix and complete payload
+    ↓
+Parse JSON
+    ↓
+Decode Base64 piece data when applicable
+    ↓
+Validate message type and payload
+    ↓
+Pass valid message to peer logic
 ```
 
-The `Decoder` reconstructs the original message type and payload.
+Incomplete frames, invalid JSON, unsupported message types, or invalid payloads should be rejected safely.
 
-Invalid or incomplete messages should be rejected rather than passed to the peer logic.
-
----
-
-## 13. Message Flow Example
-
-A simple piece-download interaction looks like:
+## 15. Example Piece Exchange
 
 ```text
 Peer A                         Peer B
@@ -298,16 +263,15 @@ Peer A                         Peer B
   │────── HAVE ─────────────────>│
 ```
 
-This represents the basic communication needed for one peer to obtain a piece from another.
+This illustrates a basic piece exchange. Actual message ordering depends on the peer's state and the implementation's connection and scheduling logic.
 
----
+## 16. Design Rules
 
-## 14. Design Rules
-
-* Every message must have a valid message type.
-* Payload fields must match the message type.
-* Messages must be encoded before being sent.
-* Received messages must be decoded before processing.
-* Invalid messages should be rejected safely.
-* Both peers must use the same message definitions.
-* Piece data should be verified after receiving it.
+- Every message must have a recognized message type.
+- The payload must match the message type.
+- Messages must be framed and encoded before transmission.
+- Receivers must read complete frames before decoding them.
+- Piece data must be decoded from Base64 before integrity verification.
+- Invalid messages must not be passed to peer logic.
+- Received pieces must be verified before being treated as valid.
+- The tracker HTTP API must not be confused with the peer wire protocol.

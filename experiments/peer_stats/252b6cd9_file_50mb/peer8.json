@@ -1,0 +1,22 @@
+{
+  "peer_id": "peer8",
+  "uploaded_bytes": 0,
+  "downloaded_bytes": 49618343,
+  "downloaded_by_peer": {
+    "peer10": 21233664,
+    "peer9": 2883584,
+    "peer11": 18685351,
+    "peer5": 6815744
+  },
+  "upload_enabled": false,
+  "rejected_upload_requests": 0,
+  "complete": true,
+  "choking": {
+    "rebalances": 11,
+    "choke_messages": 0,
+    "unchoke_messages": 0,
+    "optimistic_unchokes": 0,
+    "optimistic_peer": null,
+    "peer_choke_events": {}
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "files": {
+    "file_20mb": {
+      "source": "../data/input_files/20MB_text_file.txt",
+      "metadata": "../data/metadata/20MB_text_file.json"
+    },
+    "file_50mb": {
+      "source": "../data/input_files/50mb.txt",
+      "metadata": "../data/metadata/50mb.json"
+    },
+    "video_mp4": {
+      "source": "../data/input_files/15MB.mp4",
+      "metadata": "../data/metadata/15MB.json"
+    }
+  },
+  "peers": [
+    {
+      "peer_id": "peer1",
+      "files": {
+        "file_20mb": "all"
+      }
+    },
+    {
+      "peer_id": "peer2",
+      "files": {
+        "file_50mb": "all"
+      }
+    },
+    {
+      "peer_id": "peer3",
+      "files": {
+        "video_mp4": "all"
+      }
+    },
+    {
+      "peer_id": "peer4",
+      "files": {
+        "file_20mb": "even"
+      }
+    },
+    {
+      "peer_id": "peer5",
+      "files": {
+        "file_50mb": "even"
+      }
+    },
+    {
+      "peer_id": "peer6",
+      "files": {
+        "video_mp4": "even"
+      }
+    },
+    {
+      "peer_id": "peer7",
+      "files": {
+        "file_20mb": "all",
+        "file_50mb": "all",
+        "video_mp4": "all"
+      }
+    },
+    {
+      "peer_id": "peer8",
+      "files": {
+        "file_20mb": "none",
+        "file_50mb": "none",
+        "video_mp4": "none"
+      }
+    },
+    {
+      "peer_id": "peer9",
+      "files": {
+        "file_20mb": "none",
+        "file_50mb": "none",
+        "video_mp4": "none"
+      }
+    },
+    {
+      "peer_id": "peer10",
+      "files": {
+        "file_20mb": "none",
+        "file_50mb": "none",
+        "video_mp4": "none"
+      }
+    },
+    {
+      "peer_id": "peer11",
+      "files": {
+        "file_20mb": "none",
+        "file_50mb": "none",
+        "video_mp4": "none"
+      }
+    }
+  ]
+}

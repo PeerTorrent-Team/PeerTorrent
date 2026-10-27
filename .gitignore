@@ -1,0 +1,26 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test and coverage caches
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Editor and operating system files
+.vscode/
+.idea/
+.DS_Store
+
+# Generated peer downloads
+data/downloads/*
+
+# Generated peer piece storage
+data/peer_storage/*
+

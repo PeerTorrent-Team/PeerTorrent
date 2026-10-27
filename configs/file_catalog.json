@@ -1,0 +1,16 @@
+{
+  "files": [
+    {
+      "name": "file_20mb",
+      "metadata": "../data/metadata/20MB_text_file.json"
+    },
+    {
+      "name": "file_50mb",
+      "metadata": "../data/metadata/50mb.json"
+    },
+    {
+      "name": "video_mp4",
+      "metadata": "../data/metadata/15MB.json"
+    }
+  ]
+}

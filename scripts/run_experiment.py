@@ -14,26 +14,64 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
+import random
+import socket
 import subprocess
 import sys
 import time
 import uuid
 from pathlib import Path
 from urllib.request import urlopen
+from urllib.error import URLError
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.prepare_swarm_data import SWARMS, prepare_all_swarms
+from scripts.prepare_swarm_data import (
+    DEFAULT_CONFIG_PATH,
+    _piece_indices,
+    prepare_from_config,
+)
 from src.pieces.metadata import calculate_file_id
 from src.pieces.metadata_serializer import load_metadata
-from src.selection.selector_factory import DEFAULT_STRATEGY, SUPPORTED_STRATEGIES
+from src.selection.selector_factory import SUPPORTED_STRATEGIES
+from src.storage.file_workflow import verify_downloaded_file
+from src.storage.paths import (
+    DEFAULT_DOWNLOAD_ROOT,
+    DEFAULT_STORAGE_ROOT,
+    resolve_project_path,
+    resolve_storage_root,
+)
 from src.storage.piece_storage import PieceStorage
 
-STORAGE_ROOT = PROJECT_ROOT / "data" / "peer_storage"
-DOWNLOAD_ROOT = PROJECT_ROOT / "data" / "downloads"
+STORAGE_ROOT = DEFAULT_STORAGE_ROOT
+DOWNLOAD_ROOT = DEFAULT_DOWNLOAD_ROOT
 DEFAULT_RESULTS_CSV = PROJECT_ROOT / "experiments" / "distribution_results.csv"
+
+DEFAULT_PEER_STATS_CSV = PROJECT_ROOT / "experiments" / "peer_statistics.csv"
+
+PEER_STATS_FIELDNAMES = [
+    "run_id",
+    "repeat",
+    "strategy",
+    "swarm",
+    "peer_id",
+    "is_free_rider",
+    "upload_enabled",
+    "uploaded_bytes",
+    "downloaded_bytes",
+    "rejected_upload_requests",
+    "complete",
+    "downloaded_by_peer",
+    "rebalances",
+    "choke_messages",
+    "unchoke_messages",
+    "optimistic_unchokes",
+    "optimistic_peer",
+    "peer_choke_events",
+]
 
 CSV_FIELDNAMES = [
     "run_id",
@@ -45,33 +83,47 @@ CSV_FIELDNAMES = [
     "piece_count",
     "peer_count",
     "initial_seeder_count",
+    "random_seed",
     "distribution_seconds",
     "integrity",
     "status",
+    "error",
 ]
+ALL_STRATEGIES = (*SUPPORTED_STRATEGIES, "all")
 
-SWARM_CONFIGS = [
-    {
-        "name": "20MB swarm",
-        "metadata_path": PROJECT_ROOT / "data" / "metadata" / "20MB_text_file.json",
-        "peers": [
-            {"id": "peer 1", "port": 6881},
-            {"id": "peer 2", "port": 6882},
-            {"id": "peer 3", "port": 6883},
-            {"id": "peer 4", "port": 6884},
-        ],
-    },
-    {
-        "name": "50MB swarm",
-        "metadata_path": PROJECT_ROOT / "data" / "metadata" / "50mb.json",
-        "peers": [
-            {"id": "peer 5", "port": 6885},
-            {"id": "peer 6", "port": 6886},
-            {"id": "peer 7", "port": 6887},
-            {"id": "peer 8", "port": 6888},
-        ],
-    },
-]
+
+def load_swarm_configs(config_path: Path = DEFAULT_CONFIG_PATH) -> list[dict]:
+    """Build one experiment workload per file from the shared assignments."""
+    config_file = resolve_project_path(config_path)
+    payload = json.loads(config_file.read_text(encoding="utf-8"))
+    files = payload.get("files")
+    peers = payload.get("peers")
+    if not isinstance(files, dict) or not isinstance(peers, list):
+        raise ValueError("Experiment config must contain 'files' and 'peers'")
+    workloads = {
+        file_name: {
+            "name": file_name,
+            "metadata_path": resolve_project_path(
+                config_file.parent / file_config["metadata"]
+            ),
+            "peers": [],
+            "assignments": {},
+        }
+        for file_name, file_config in files.items()
+    }
+    seen_pairs: set[tuple[str, str]] = set()
+    for peer_config in peers:
+        peer_id = peer_config["peer_id"]
+        for file_name, distribution in peer_config["files"].items():
+            pair = (peer_id, file_name)
+            if pair in seen_pairs:
+                raise ValueError(f"Duplicate configured peer/file assignment: {pair}")
+            seen_pairs.add(pair)
+            if file_name not in workloads:
+                raise ValueError(f"Unknown configured file: {file_name}")
+            workloads[file_name]["peers"].append({"id": peer_id})
+            workloads[file_name]["assignments"][peer_id] = distribution
+    return [workload for workload in workloads.values() if workload["peers"]]
 
 
 def stop_process(proc: subprocess.Popen, timeout: float = 3.0) -> None:
@@ -86,16 +138,30 @@ def stop_process(proc: subprocess.Popen, timeout: float = 3.0) -> None:
         proc.wait()
 
 
-def wait_for_tracker(host: str = "127.0.0.1", port: int = 6969, timeout: float = 5.0) -> bool:
-    """Poll the tracker health endpoint until ready or timeout expires."""
-    deadline = time.time() + timeout
+def allocate_free_port(host: str = "127.0.0.1") -> int:
+    """Ask the OS for an currently unused TCP port."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind((host, 0))
+        return listener.getsockname()[1]
+
+
+def wait_for_tracker(
+    host: str = "127.0.0.1",
+    port: int = 6969,
+    timeout: float = 5.0,
+    process: subprocess.Popen | None = None,
+) -> bool:
+    """Poll tracker health until ready, timeout, or tracker process failure."""
+    deadline = time.monotonic() + timeout
     url = f"http://{host}:{port}/health"
-    while time.time() < deadline:
+    while time.monotonic() < deadline:
+        if process is not None and process.poll() is not None:
+            return False
         try:
             with urlopen(url, timeout=0.5) as resp:
                 if resp.status == 200:
                     return True
-        except Exception:
+        except (OSError, URLError):
             time.sleep(0.1)
     return False
 
@@ -104,23 +170,44 @@ def verify_peer_download(
     metadata_path: Path,
     peer_id: str,
     output_path: Path,
+    storage_root: Path = STORAGE_ROOT,
 ) -> bool:
-    """Run verify_download.py for a peer and return True if verification succeeded."""
-    cmd = [
-        sys.executable,
-        str(PROJECT_ROOT / "scripts" / "verify_download.py"),
-        "--metadata",
-        str(metadata_path),
-        "--peer-id",
-        peer_id,
-        "--output",
-        str(output_path),
-    ]
-    res = subprocess.run(cmd, cwd=str(PROJECT_ROOT), capture_output=True, text=True)
-    if res.returncode != 0:
-        print(f"Verification failed for {peer_id}:\n{res.stderr}\n{res.stdout}")
+    """Reconstruct and verify one peer's actual stored pieces and file hash."""
+    metadata = load_metadata(metadata_path)
+    storage = PieceStorage(
+        storage_root,
+        peer_id=peer_id,
+        file_id=calculate_file_id(metadata),
+    )
+    try:
+        verify_downloaded_file(metadata, storage, output_path)
+    except (OSError, ValueError) as exc:
+        print(f"Verification failed for {peer_id}: {exc}")
         return False
     return True
+
+
+def validate_initial_distribution(
+    workload: dict,
+    metadata,
+    storage_root: Path,
+) -> None:
+    """Fail before networking if scoped preparation differs from config."""
+    file_id = calculate_file_id(metadata)
+    for peer_id, distribution in workload["assignments"].items():
+        expected = _piece_indices(distribution, metadata.piece_count)
+        storage = PieceStorage(storage_root, peer_id=peer_id, file_id=file_id)
+        actual = [
+            index
+            for index in range(metadata.piece_count)
+            if storage.has_piece(index)
+        ]
+        if actual != expected:
+            raise RuntimeError(
+                f"Initial storage validation failed for {peer_id}/"
+                f"{workload['name']}: expected {len(expected)} configured pieces, "
+                f"found {len(actual)}"
+            )
 
 
 def run_single_iteration(
@@ -129,167 +216,265 @@ def run_single_iteration(
     strategy: str,
     timeout: float,
     free_rider_peer: str | None = None,
+    config_path: Path = DEFAULT_CONFIG_PATH,
+    storage_root: Path = STORAGE_ROOT,
+    download_root: Path = DOWNLOAD_ROOT,
+    random_seed: int | None = None,
+    upload_rate_limit: int | None = None,
 ) -> list[dict]:
-    """Execute one full iteration of the 8-peer experiment across both swarms."""
+    """Run every configured file workload once, returning a row per workload."""
     print(f"\n{'='*70}")
     print(f"Starting Run {run_id} | Repeat {repeat_idx} | Strategy: {strategy}")
     print(f"{'='*70}")
+    config_path = resolve_project_path(config_path)
+    storage_root = resolve_storage_root(storage_root)
+    download_root = resolve_project_path(download_root)
+    workloads = load_swarm_configs(config_path)
+    results: list[dict] = []
 
-    # 1. Reset and prepare peer storage
-    prepare_all_swarms()
+    for workload_index, workload in enumerate(workloads):
+        metadata = load_metadata(workload["metadata_path"])
+        file_id = calculate_file_id(metadata)
+        peer_ids = [peer["id"] for peer in workload["peers"]]
+        seeds = [
+            peer_id
+            for peer_id, distribution in workload["assignments"].items()
+            if distribution == "all"
+        ]
+        seed_for_run = (
+            random_seed + repeat_idx * 1009 + workload_index
+            if random_seed is not None
+            else random.SystemRandom().randrange(0, 2**32)
+        )
+        stats_dir = (
+            PROJECT_ROOT
+            / "experiments"
+            / "peer_stats"
+            / f"{run_id}_{workload['name']}"
+        )
+        stats_dir.mkdir(parents=True, exist_ok=True)
 
-    # Preload swarm metadata
-    swarm_meta = []
-    for sc in SWARM_CONFIGS:
-        meta = load_metadata(sc["metadata_path"])
-        file_id = calculate_file_id(meta)
-        swarm_meta.append({
-            "config": sc,
-            "metadata": meta,
-            "file_id": file_id,
-            "peers": [p["id"] for p in sc["peers"]],
-        })
+        record = {
+            "run_id": run_id,
+            "repeat": repeat_idx,
+            "strategy": strategy,
+            "swarm": workload["name"],
+            "file_name": metadata.file_name,
+            "file_size_bytes": metadata.file_size,
+            "piece_count": metadata.piece_count,
+            "peer_count": len(peer_ids),
+            "initial_seeder_count": len(seeds),
+            "random_seed": seed_for_run if strategy == "random" else "",
+            "distribution_seconds": "",
+            "integrity": "not_checked",
+            "status": "preparation_failure",
+            "error": "",
+        }
 
-    # 2. Launch HTTP tracker
-    tracker_cmd = [sys.executable, "-m", "src.tracker.tracker_main"]
-    tracker_proc = subprocess.Popen(
-        tracker_cmd,
-        cwd=str(PROJECT_ROOT),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+        tracker_proc = None
+        peer_procs: list[subprocess.Popen] = []
+        phase = "preparation_failure"
+        try:
+            # Each workload and repetition begins with an explicitly reset copy
+            # of the configured distribution; no prior strategy can warm it.
+            prepare_from_config(
+                config_path,
+                storage_root=storage_root,
+                download_root=download_root,
+                reset_peer_files={
+                    (peer_id, workload["name"])
+                    for peer_id in peer_ids
+                },
+                only_peer_files={
+                    (peer_id, workload["name"])
+                    for peer_id in peer_ids
+                },
+            )
+            validate_initial_distribution(workload, metadata, storage_root)
 
-    if not wait_for_tracker():
-        stop_process(tracker_proc)
-        raise RuntimeError("HTTP tracker failed to start within timeout.")
+            phase = "tracker_failure"
+            tracker_port = allocate_free_port()
+            tracker_proc = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "src.tracker.tracker_main",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    str(tracker_port),
+                ],
+                cwd=str(PROJECT_ROOT),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            if not wait_for_tracker(port=tracker_port, process=tracker_proc):
+                record["status"] = "tracker_failure"
+                raise RuntimeError("HTTP tracker failed to become ready")
 
-    # 3. Launch all peers
-    peer_procs: list[subprocess.Popen] = []
-    try:
-        for item in swarm_meta:
-            meta_path = item["config"]["metadata_path"]
-            for peer_info in item["config"]["peers"]:
-                pid = peer_info["id"]
-                port = peer_info["port"]
-                peer_cmd = [
+            phase = "process_failure"
+            ports: set[int] = set()
+            started_at = time.monotonic()
+            for peer_id in peer_ids:
+                peer_port = allocate_free_port()
+                while peer_port in ports or peer_port == tracker_port:
+                    peer_port = allocate_free_port()
+                ports.add(peer_port)
+                peer_seed = seed_for_run + int(peer_id[4:]) if peer_id.startswith("peer") and peer_id[4:].isdigit() else seed_for_run
+                command = [
                     sys.executable,
                     "-m",
                     "src.main",
                     "--peer-id",
-                    pid,
+                    peer_id,
                     "--metadata",
-                    str(meta_path),
+                    str(workload["metadata_path"]),
                     "--port",
-                    str(port),
+                    str(peer_port),
+                    "--tracker-port",
+                    str(tracker_port),
+                    "--storage",
+                    str(storage_root),
                     "--strategy",
                     strategy,
+                    "--random-seed",
+                    str(peer_seed),
+                    "--stats-output",
+                    str(stats_dir / f"{peer_id}.json"),
                 ]
-                if free_rider_peer and pid == free_rider_peer:
-                    peer_cmd.append("--no-upload")
-
-                proc = subprocess.Popen(
-                    peer_cmd,
-                    cwd=str(PROJECT_ROOT),
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
+                if upload_rate_limit is not None:
+                  command.extend(["--upload-rate-limit",str(upload_rate_limit),])
+                if free_rider_peer == peer_id:
+                    command.append("--no-upload")
+                peer_procs.append(
+                    subprocess.Popen(
+                        command,
+                        cwd=str(PROJECT_ROOT),
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
                 )
-                peer_procs.append(proc)
 
-        # 4. Measure time until all peers in each swarm have all pieces
-        t_start = time.time()
-        completion_times: dict[str, float | None] = {item["config"]["name"]: None for item in swarm_meta}
+            deadline = started_at + timeout
+            while time.monotonic() < deadline:
+                failed = [process for process in peer_procs if process.poll() is not None]
+                if failed:
+                    record["status"] = "process_failure"
+                    raise RuntimeError(
+                        "Peer process exited unexpectedly with code "
+                        + ", ".join(str(process.returncode) for process in failed)
+                    )
+                if tracker_proc.poll() is not None:
+                    record["status"] = "tracker_failure"
+                    raise RuntimeError("Tracker process exited during workload")
+                complete = all(
+                    all(
+                        PieceStorage(
+                            storage_root,
+                            peer_id=peer_id,
+                            file_id=file_id,
+                        ).has_piece(index)
+                        for index in range(metadata.piece_count)
+                    )
+                    for peer_id in peer_ids
+                )
+                if complete:
+                    record["distribution_seconds"] = f"{time.monotonic() - started_at:.6f}"
+                    record["status"] = "integrity_failure"
+                    record["error"] = ""
+                    record["integrity"] = "failed"
+                    safe_name = Path(metadata.file_name.replace("\\", "/")).name
+                    verification_errors = []
+                    for peer_id in peer_ids:
+                        output = download_root / peer_id / safe_name
+                        if not verify_peer_download(
+                            workload["metadata_path"],
+                            peer_id,
+                            output,
+                            storage_root=storage_root,
+                        ):
+                            verification_errors.append(peer_id)
+                    if verification_errors:
+                        record["error"] = "Integrity verification failed for: " + ", ".join(verification_errors)
+                    else:
+                        record["integrity"] = "passed"
+                        record["status"] = "success"
+                    break
+                time.sleep(0.2)
+            else:
+                record["status"] = "timeout"
+                record["integrity"] = "not_checked"
+                record["error"] = f"Not all {len(peer_ids)} peers completed within {timeout} seconds"
+        except KeyboardInterrupt:
+            record["status"] = "process_failure"
+            record["error"] = "Interrupted by user"
+            results.append(record)
+            raise
+        except Exception as exc:
+            if record["status"] not in {"tracker_failure", "process_failure"}:
+                record["status"] = phase
+            record["error"] = str(exc)
+        finally:
+            for process in reversed(peer_procs):
+                stop_process(process)
 
-        while time.time() - t_start < timeout:
-            now = time.time()
-            all_swarms_finished = True
-
-            for item in swarm_meta:
-                swarm_name = item["config"]["name"]
-                if completion_times[swarm_name] is not None:
+            peer_stat_rows = []
+            for peer_id in peer_ids:
+                stats_path = stats_dir / f"{peer_id}.json"
+                if not stats_path.is_file():
+                    continue
+                try:
+                    stats = json.loads(stats_path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError) as exc:
+                    print(f"Could not read peer stats for {peer_id}: {exc}")
                     continue
 
-                all_peers_complete = True
-                fid = item["file_id"]
-                total_pieces = item["metadata"].piece_count
+                choking = stats.get("choking", {})
+                peer_stat_rows.append({
+                    "run_id": run_id,
+                    "repeat": repeat_idx,
+                    "strategy": strategy,
+                    "swarm": workload["name"],
+                    "peer_id": peer_id,
+                    "is_free_rider": peer_id == free_rider_peer,
+                    "upload_enabled": stats.get("upload_enabled", ""),
+                    "uploaded_bytes": stats.get("uploaded_bytes", ""),
+                    "downloaded_bytes": stats.get("downloaded_bytes", ""),
+                    "rejected_upload_requests": stats.get(
+                        "rejected_upload_requests", ""
+                    ),
+                    "complete": stats.get("complete", ""),
+                    "downloaded_by_peer": json.dumps(
+                        stats.get("downloaded_by_peer", {}),
+                        sort_keys=True,
+                    ),
+                    "rebalances": choking.get("rebalances", ""),
+                    "choke_messages": choking.get("choke_messages", ""),
+                    "unchoke_messages": choking.get("unchoke_messages", ""),
+                    "optimistic_unchokes": choking.get("optimistic_unchokes", ""),
+                    "optimistic_peer": choking.get("optimistic_peer", ""),
+                    "peer_choke_events": json.dumps(
+                        choking.get("peer_choke_events", {}),
+                        sort_keys=True,
+                    ),
+                })
 
-                for pid in item["peers"]:
-                    st = PieceStorage(STORAGE_ROOT, peer_id=pid, file_id=fid)
-                    for idx in range(total_pieces):
-                        if not st.has_piece(idx):
-                            all_peers_complete = False
-                            break
-                    if not all_peers_complete:
-                        break
-
-                if all_peers_complete:
-                    elapsed = now - t_start
-                    completion_times[swarm_name] = elapsed
-                    print(f"[{swarm_name}] All peers completed distribution in {elapsed:.2f}s")
-                else:
-                    all_swarms_finished = False
-
-            if all_swarms_finished:
-                break
-
-            time.sleep(0.2)
-
-        # Check for timeouts
-        for sname, ctime in completion_times.items():
-            if ctime is None:
-                print(f"[{sname}] Timed out after {timeout} seconds.")
-
-    finally:
-        # 5. Cleanly stop all peer processes and tracker
-        for p in peer_procs:
-            stop_process(p)
-        stop_process(tracker_proc)
-        time.sleep(1.0)  # Brief pause for OS sockets to clear
-
-    # 6. Verify downloads and assemble results
-    results: list[dict] = []
-    for item in swarm_meta:
-        swarm_name = item["config"]["name"]
-        meta = item["metadata"]
-        elapsed = completion_times[swarm_name]
-        is_timeout = elapsed is None
-
-        integrity_passed = True
-        if not is_timeout:
-            # Verify reconstructed files for all peers in swarm
-            safe_fname = Path(meta.file_name.replace("\\", "/")).name
-            for pid in item["peers"]:
-                out_path = DOWNLOAD_ROOT / pid / safe_fname
-                verified = verify_peer_download(
-                    metadata_path=item["config"]["metadata_path"],
-                    peer_id=pid,
-                    output_path=out_path,
+            if peer_stat_rows:
+                record_peer_stats_to_csv(
+                    peer_stat_rows,
+                    DEFAULT_PEER_STATS_CSV,
                 )
-                if not verified:
-                    integrity_passed = False
-                    break
-        else:
-            integrity_passed = False
 
-        status = "success" if (not is_timeout and integrity_passed) else ("timeout" if is_timeout else "failed")
-        integrity = "passed" if integrity_passed else "failed"
-        dist_seconds = f"{elapsed:.2f}" if status == "success" else ""
+            if tracker_proc is not None:
+                stop_process(tracker_proc)
 
-        row = {
-            "run_id": run_id,
-            "repeat": repeat_idx,
-            "strategy": strategy,
-            "swarm": swarm_name,
-            "file_name": meta.file_name,
-            "file_size_bytes": meta.file_size,
-            "piece_count": meta.piece_count,
-            "peer_count": len(item["peers"]),
-            "initial_seeder_count": 1,
-            "distribution_seconds": dist_seconds,
-            "integrity": integrity,
-            "status": status,
-        }
-        results.append(row)
-        print(f"Swarm: {swarm_name} | Status: {status} | Integrity: {integrity} | Distribution time: {dist_seconds}s")
+        print(
+            f"[{workload['name']}] {record['status']} "
+            f"integrity={record['integrity']} "
+            f"time={record['distribution_seconds'] or 'n/a'} "
+            f"error={record['error'] or 'none'}"
+        )
+        results.append(record)
 
     return results
 
@@ -299,6 +484,14 @@ def record_results_to_csv(results: list[dict], csv_path: Path) -> None:
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     write_header = not csv_path.exists() or csv_path.stat().st_size == 0
 
+    if not write_header:
+        with csv_path.open("r", newline="", encoding="utf-8") as existing:
+            header = next(csv.reader(existing), [])
+        if header != CSV_FIELDNAMES:
+            raise ValueError(
+                f"Existing results schema in {csv_path} differs; use --fresh-results"
+            )
+
     with csv_path.open("a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_FIELDNAMES)
         if write_header:
@@ -307,15 +500,39 @@ def record_results_to_csv(results: list[dict], csv_path: Path) -> None:
             writer.writerow(r)
 
 
-def main() -> None:
+def record_peer_stats_to_csv(rows: list[dict], csv_path: Path) -> None:
+    """Append peer transfer and choking statistics to their own CSV."""
+    if not rows:
+        return
+
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not csv_path.exists() or csv_path.stat().st_size == 0
+
+    if not write_header:
+        with csv_path.open("r", newline="", encoding="utf-8") as existing:
+            header = next(csv.reader(existing), [])
+        if header != PEER_STATS_FIELDNAMES:
+            raise ValueError(
+                f"Existing peer stats schema in {csv_path} differs. "
+                "Back up the file before changing its schema."
+            )
+
+    with csv_path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=PEER_STATS_FIELDNAMES)
+        if write_header:
+            writer.writeheader()
+        writer.writerows(rows)
+
+
+def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run automated PeerTorrent swarm distribution experiments."
     )
     parser.add_argument(
         "--strategy",
-        choices=SUPPORTED_STRATEGIES,
-        default=DEFAULT_STRATEGY,
-        help=f"Piece selection strategy (default: {DEFAULT_STRATEGY}).",
+        choices=ALL_STRATEGIES,
+        default="all",
+        help="Strategy to run, or 'all' for rarest-first, sequential, and random.",
     )
     parser.add_argument(
         "--repeats",
@@ -340,28 +557,97 @@ def main() -> None:
         default=None,
         help="Optional peer ID configured with --no-upload for free-rider tests.",
     )
+    parser.add_argument(
+     "--upload-rate-limit",
+     type=int,
+     default=None,
+     help="Simulated upload rate limit in bytes per second (default: unlimited).",
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG_PATH,
+        help=f"Peer/file assignment config (default: {DEFAULT_CONFIG_PATH}).",
+    )
+    parser.add_argument(
+        "--storage",
+        type=Path,
+        default=None,
+        help=f"Canonical peer storage root (default: {DEFAULT_STORAGE_ROOT}).",
+    )
+    parser.add_argument(
+        "--random-seed",
+        type=int,
+        default=0,
+        help="Base seed for reproducible random-selector runs (default: 0).",
+    )
+    parser.add_argument(
+        "--fresh-results",
+        action="store_true",
+        help="Truncate the selected CSV before this benchmark.",
+    )
 
     args = parser.parse_args()
+    if args.repeats < 1:
+        parser.error("--repeats must be at least 1")
+    if args.timeout <= 0:
+        parser.error("--timeout must be greater than 0")
+    if args.upload_rate_limit is not None and args.upload_rate_limit <= 0:
+        parser.error("--upload-rate-limit must be greater than 0")
+    
+    result_path = resolve_project_path(args.output)
+    storage_root = resolve_storage_root(args.storage)
+    if args.fresh_results:
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.write_text("", encoding="utf-8")
+    elif result_path.exists() and result_path.stat().st_size:
+        with result_path.open("r", newline="", encoding="utf-8") as existing:
+            header = next(csv.reader(existing), [])
+        if header != CSV_FIELDNAMES:
+            parser.error("Existing CSV has a different schema; pass --fresh-results")
 
-    print(f"Starting experiments with strategy: {args.strategy}")
+    strategies = SUPPORTED_STRATEGIES if args.strategy == "all" else (args.strategy,)
+    print(f"Starting experiments with strategies: {', '.join(strategies)}")
     print(f"Repetitions: {args.repeats}")
     print(f"Timeout: {args.timeout}s")
-    print(f"Results CSV: {args.output}")
+    print(f"Storage root: {storage_root}")
+    print(f"Results CSV: {result_path}")
 
-    for i in range(1, args.repeats + 1):
-        run_id = uuid.uuid4().hex[:8]
-        results = run_single_iteration(
-            run_id=run_id,
-            repeat_idx=i,
-            strategy=args.strategy,
-            timeout=args.timeout,
-            free_rider_peer=args.free_rider_peer,
-        )
-        record_results_to_csv(results, args.output)
-        print(f"Repeat {i}/{args.repeats} recorded to {args.output}")
+    all_succeeded = True
+    for strategy in strategies:
+        for repeat_index in range(1, args.repeats + 1):
+            run_id = uuid.uuid4().hex[:8]
+            try:
+                results = run_single_iteration(
+                    run_id=run_id,
+                    repeat_idx=repeat_index,
+                    strategy=strategy,
+                    timeout=args.timeout,
+                    free_rider_peer=args.free_rider_peer,
+                    config_path=args.config,
+                    storage_root=storage_root,
+                    download_root=DOWNLOAD_ROOT,
+                    random_seed=args.random_seed,
+                    upload_rate_limit=args.upload_rate_limit,
+                )
+            except KeyboardInterrupt:
+                print("Experiment interrupted; started child processes were stopped.")
+                return 130
+            except Exception as exc:
+                print(f"{strategy} repeat {repeat_index} could not be initialized: {exc}")
+                all_succeeded = False
+                continue
+            record_results_to_csv(results, result_path)
+            if any(result["status"] != "success" for result in results):
+                all_succeeded = False
+            print(
+                f"{strategy} repeat {repeat_index}/{args.repeats} "
+                f"recorded to {result_path}"
+            )
 
-    print("\nAll experiment repeats finished.")
+    print("\nExperiment repetitions finished.")
+    return 0 if all_succeeded else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

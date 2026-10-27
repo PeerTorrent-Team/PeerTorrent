@@ -33,11 +33,15 @@ def normalize_strategy_name(name: str) -> str:
         ) from exc
 
 
-def create_selector(name: str = DEFAULT_STRATEGY) -> Selector:
+def create_selector(
+    name: str = DEFAULT_STRATEGY,
+    *,
+    random_seed: int | None = None,
+) -> Selector:
     """Build a fresh selector instance for a supported strategy."""
     strategy = normalize_strategy_name(name)
     if strategy == "rarest-first":
         return RarestFirstSelector()
     if strategy == "random":
-        return RandomSelector()
+        return RandomSelector(random_seed)
     return SequentialSelector()

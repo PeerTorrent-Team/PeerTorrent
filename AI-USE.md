@@ -1,93 +1,183 @@
-=============================
-Rajneesh
-=============================
+# AI-USE.md
 
-I worked on the M1 Pieces and Storage module and used AI assistance for understanding the project architecture and module interfaces, implementing and reviewing `hash_utils.py`, `metadata.py`, `piece.py`, and `piece_storage.py`, and for debugging and testing support. I also used AI assistance for implementing and reviewing `verifier.py`, debugging the import-resolution issue, and functional verification/testing support. I also used AI assistance for planning, implementing, and reviewing `file_manager.py`, and for debugging and implementation verification/testing support. I also used AI assistance for planning, reviewing, debugging, and testing support for `src/pieces/piece_manager.py`, including alignment with the documented PieceManager interface and existing Piece/PieceStorage modules. The final implementations and changes were reviewed and verified according to the project requirements.
+This file explains how each team member used AI tools during the development of the PeerTorrent project. We used AI mainly to understand concepts, debug errors, improve code, write tests, and review our implementation. We checked the generated suggestions and modified them according to our project requirements.
 
+## 1. Rajneesh — Pieces and Storage
 
+I worked mainly on the pieces and storage part of the project. I used AI tools to understand the implementation, debug errors, write unit tests, and check whether the modules were working correctly.
 
-=============================
-Debjyoti
-=============================
+### Files and modules
 
--> src/common/ 
+- `src/pieces/hash_utils.py`
+- `src/pieces/metadata.py`
+- `src/pieces/piece.py`
+- `src/pieces/piece_storage.py`
+- `src/pieces/verifier.py`
+- `src/pieces/piece_manager.py`
+- `src/storage/file_manager.py`
 
-AI was utilized as an aid for learning and development during the implementation of the `common` module. It assisted in providing explanations of some of the Python programming elements such as dataclasses, frozen dataclasses, type annotations, logging, handlers, formatters, and duplicate handler avoidance.
+I also worked on fixing import-resolution issues and making sure the modules could work together properly.
 
-The code for the `common` module was implemented manually by the team member. AI was used to provide explanations of the design choices, suggest implementation, and assist in the process of testing the code.
+### Integration with Antigravity
 
--> src/tracker/
+I used Antigravity to help with integration and verification. I compared the following nine files with the integration archive using `cmp`:
 
-I worked on the tracker module, including `peer_registry.py`, `swarm_manager.py`, `tracker_client.py`, `tracker_main.py`, and `tracker_server.py`. I used AI assistance for understanding the tracker architecture and module interfaces, peer registration, swarm management, tracker-client communication, and the overall flow of tracker operations.
+- `src/common/types.py`
+- `src/pieces/hash_utils.py`
+- `src/pieces/metadata.py`
+- `src/pieces/metadata_serializer.py`
+- `src/pieces/piece.py`
+- `src/pieces/piece_manager.py`
+- `src/pieces/verifier.py`
+- `src/storage/file_manager.py`
+- `src/storage/piece_storage.py`
 
-AI was also used for implementation support, debugging, code review, and testing assistance. It helped explain Python concepts and design choices, identify and resolve implementation issues, and suggest temporary test cases for verifying the tracker components. The final implementations and changes were reviewed and verified according to the project requirements.
+All nine files matched the integration archive byte-for-byte. During one integration check, pytest collected zero tests, so further testing was needed.
 
--> tests/test_tracker.py: Used AI for conceptual understanding and debugging of code.
+### Unit testing
 
-=============================
-Aritri
-=============================
+I used AI assistance while developing and reviewing tests for:
 
-I worked on the initial project documentation and configuration files and used AI for preparing the README.md, requirements.txt, pyproject.toml, and architecture.md, for summarizing the project overview, learning dependencies, Python project configuration, and generating overall system architecture.
+- `tests/test_metadata.py`
+- `tests/test_piece_manager.py`
 
-I completed the selection folder and used AI to understand what exactly each algorithm is doing. I used AI to generate temporary test cases to see if my algorithms worked properly. I also used AI to update module_interfaces.md for availability data representation defination.
+The test suite for this work had 12 passing tests.
 
-I completed the core peer folder modules, including peer.py, peer_state.py, scheduler.py, download_manager.py, and upload_manager.py. I implemented the core structure and logic of these modules myself, using the project documentation and interfaces as the basis for their design and integration, while using AI as a support tool to understand the responsibilities and flow of each module, particularly how peer state, piece scheduling, downloading, uploading, and protocol message handling interact with the other project components. AI was also used to explain unfamiliar code concepts, review the implementation, identify potential issues, and help me understand how the other modules are related to this folder.
+### File seeding and verification
 
+I also worked on the file seeding and verification workflow.
 
+In `src/storage/file_workflow.py`, I implemented:
 
+- `seed_source_file`
+- `verify_downloaded_file`
 
+I worked on the following CLI scripts:
 
+- `scripts/seed_file.py`
+- `scripts/verify_download.py`
+- `scripts/create_metadata.py`
 
+I used AI assistance to debug the `mock_storage` fixture in `tests/test_piece_manager.py` and to write tests in `tests/test_file_workflow.py`. These tests covered piece staging, rollback of corrupted pieces, hash verification, and peer startup.
 
-=============================
-Ankit
-=============================
+I also updated the documentation in:
 
-I used AI as a support tool while developing the project documentation, protocol module, and network module. It helped me organize documents such as `Development_plan.txt`, `message_format.md`, `module_interfaces.md`, and `protocol_specification.md`, as well as understand and implement parts of `src/protocol/`, including message types, message handling, encoding, decoding, and handshaking. I also used it to understand and implement `src/network/`, including TCP socket management, peer connections, message sending and receiving, connection state handling, and connection pooling. AI was also used to clarify Python concepts, debug issues, and design and run small tests for the implemented modules. The final code, structure, and decisions were reviewed, understood, tested, and adapted by me according to the project requirements.
+- `README.md`
+- `docs/setup_guide.md`
+- `docs/member1_pieces_storage_handoff.md`
 
-=============================
-Rajneesh — M1 Integration
-=============================
+AI helped me understand errors and review the implementation, but I checked and adjusted the code to fit the project's requirements.
 
-I carried out the M1 integration pass to align the Pieces and Storage modules with the integration version supplied by a teammate. AI assistance (Antigravity) was used to review the supplied integration version, identify file-level differences, plan the integration order, generate implementation prompts, review changes, and perform compilation and compatibility verification.
+## 2. Debjyoti — Common Modules and Tracker
 
-The M1 files aligned with the supplied integration version were:
-- src/common/types.py
-- src/pieces/hash_utils.py
-- src/pieces/metadata.py
-- src/pieces/metadata_serializer.py
-- src/pieces/piece.py
-- src/pieces/piece_manager.py
-- src/pieces/verifier.py
-- src/storage/file_manager.py
-- src/storage/piece_storage.py
+I worked mainly on the common modules and the tracker part of the project. I used AI tools to understand the code structure, improve implementation, and help with testing and debugging.
 
-The integration work preserved the supplied architecture and interfaces. The final versions of all nine M1 source files were compared byte-for-byte with the supplied integration archive using cmp and matched exactly.
+### Common modules
 
-AI assistance was used for review, planning, implementation guidance, and verification. No claim should be made that AI independently authored the complete core BitTorrent protocol implementation. The existing pytest suite collected zero tests during validation, so no test cases were reported as passing.
+I worked in the `src/common/` directory. AI helped me understand and use:
 
-=============================
-Rajneesh — M1 Unit Test Development
-=============================
+- Dataclasses and frozen dataclasses
+- Type annotations
+- Logging
+- Log handlers and formatters
+- How to avoid adding duplicate logging handlers
 
-I used AI/Antigravity assistance for the M1 unit‑test work:
-- reviewing the existing M1 module interfaces and implementation behavior,
-- proposing and refining unit‑test cases for `tests/test_metadata.py` and `tests/test_piece_manager.py`,
-- debugging and refining the tests against the existing implementation,
-- reviewing the test results and verification commands.
+I reviewed the suggestions and adjusted them to match the project's existing structure.
 
-The effort added unit tests for the Member 1 Pieces/Storage modules, and the final verification produced **12 passing tests**.
+### Tracker modules
 
-=============================
-Rajneesh — M1 Seeding and Verification Workflow
-=============================
+I worked on the following tracker files:
 
-I used AI assistance for the Member 1 Seeding and Storage Verification contribution:
-- reviewing and integrating the high-level seeding (`seed_source_file`) and verification (`verify_downloaded_file`) workflows in `src/storage/file_workflow.py`,
-- reviewing and verifying standalone CLI tools (`scripts/seed_file.py`, `scripts/verify_download.py`, and `scripts/create_metadata.py`),
-- fixing the `mock_storage` test fixture in `tests/test_piece_manager.py` to correctly reflect empty initial storage,
-- developing and running integration tests in `tests/test_file_workflow.py` covering piece staging, corrupt piece rollback, hash verification, and peer startup,
-- updating documentation in `README.md`, `docs/setup_guide.md`, and `docs/member1_pieces_storage_handoff.md`.
+- `peer_registry.py`
+- `swarm_manager.py`
+- `tracker_client.py`
+- `tracker_main.py`
+- `tracker_server.py`
 
-All tests (91 passing), bytecode compilation, and end-to-end CLI verification were executed and validated.
+AI helped me understand the tracker workflow, debug problems, and review how peers register and communicate with the tracker.
+
+### Testing
+
+I also worked with `tests/test_tracker.py`. AI assistance helped me review test cases, understand failures, and check whether the tracker modules behaved as expected.
+
+I used AI as a support tool for learning, debugging, and reviewing the code. I checked the final implementation against the project requirements.
+
+## 3. Aritri — Project Setup and Peer Management
+
+I worked on the initial project setup, documentation, configuration, and peer-management modules. I used AI tools to understand the architecture, organize the project, and review the implementation.
+
+### Project setup and documentation
+
+I worked on the following files:
+
+- `README.md`
+- `requirements.txt`
+- `pyproject.toml`
+- `architecture.md`
+
+AI helped me organize the initial project structure, understand dependencies, and improve the documentation.
+
+### Module selection and interfaces
+
+I worked on the selection folder and temporary tests during development. I also worked on `module_interfaces.md`, especially the representation of availability data between modules.
+
+AI helped me understand how the modules should communicate and how the interfaces could be kept consistent.
+
+### Peer-management modules
+
+I worked on the following peer-related files:
+
+- `peer.py`
+- `peer_state.py`
+- `scheduler.py`
+- `download_manager.py`
+- `upload_manager.py`
+
+I implemented the main structure and logic of these modules, using AI support to understand concepts, review code, and debug problems.
+
+AI suggestions were useful for learning and checking my approach, but I reviewed and adapted the implementation to fit the project's design.
+
+## 4. Ankit — Protocol and Network
+
+I worked mainly on the protocol and network parts of PeerTorrent. I used AI tools to understand protocol concepts, debug implementation issues, and test the communication between peers.
+
+### Documentation
+
+I worked on the following documentation files:
+
+- `Development_plan.txt`
+- `message_format.md`
+- `module_interfaces.md`
+- `protocol_specification.md`
+
+AI helped me organize technical information and understand how the protocol and network modules should interact.
+
+### Protocol modules
+
+I worked in `src/protocol/`, focusing on:
+
+- Message types and message handling
+- Message encoding and decoding
+- Peer handshaking
+
+AI helped me understand the message format and review the implementation for consistency with the protocol specification.
+
+### Network modules
+
+I worked in `src/network/`, focusing on:
+
+- TCP socket management
+- Peer connections
+- Sending and receiving messages
+- Connection state management
+- Connection pooling
+
+I used AI assistance to understand networking concepts, debug errors, and create small tests to check specific behaviours.
+
+I reviewed and adapted the generated suggestions before using them in the project. The final implementation was checked against the project's protocol and networking requirements.
+
+## General Note
+
+All four members used AI as a supporting tool during development. It helped us learn unfamiliar concepts, understand errors, review code, and develop tests. We checked the suggestions and modified them where necessary to match our project requirements.
+
+AI assistance did not replace our responsibility for understanding, reviewing, and integrating our work. Each member was responsible for their assigned modules and for checking the code they contributed.

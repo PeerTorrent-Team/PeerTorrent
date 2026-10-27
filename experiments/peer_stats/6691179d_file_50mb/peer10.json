@@ -1,0 +1,38 @@
+{
+  "peer_id": "peer10",
+  "uploaded_bytes": 51453351,
+  "downloaded_bytes": 49618343,
+  "downloaded_by_peer": {
+    "peer5": 26476544,
+    "peer9": 1048576,
+    "peer11": 22093223
+  },
+  "upload_enabled": true,
+  "rejected_upload_requests": 0,
+  "complete": true,
+  "choking": {
+    "rebalances": 99,
+    "choke_messages": 72,
+    "unchoke_messages": 72,
+    "optimistic_unchokes": 3,
+    "optimistic_peer": null,
+    "peer_choke_events": {
+      "peer8": {
+        "choke": 3,
+        "unchoke": 3
+      },
+      "peer9": {
+        "choke": 16,
+        "unchoke": 16
+      },
+      "peer11": {
+        "choke": 29,
+        "unchoke": 29
+      },
+      "peer5": {
+        "choke": 24,
+        "unchoke": 24
+      }
+    }
+  }
+}

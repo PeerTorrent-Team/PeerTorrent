@@ -1,35 +1,42 @@
-# Setup Guide
+# PeerTorrent Setup Guide
+
+This guide covers installing PeerTorrent, preparing a source file, starting the tracker and peers, and verifying a downloaded file.
+
+Run commands from the project root unless otherwise stated.
 
 ## Requirements
 
-Python 3.10 or newer is recommended.
+- Python 3.10 or newer.
+- The project dependencies listed in `requirements.txt`.
 
-## Installation
+## 1. Install Dependencies
 
-Clone or extract the PeerTorrent project and enter the project directory:
-
-```bash
-cd PeerTorrent
-```
-
-Install the dependencies:
+Install the standard dependencies:
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
-## Create Metainfo and Prepare a Seeder
+For development tools such as Black and Flake8, install the project with its development extra:
 
-From the project root, create metainfo for the file you want to share:
+```bash
+python -m pip install ".[dev]"
+```
+
+## 2. Create Metadata
+
+Place the source file in the project or choose an existing file. This example assumes the source is `data/input_files/sample.bin`.
 
 ```bash
 python scripts/create_metadata.py data/input_files/sample.bin \
     --output data/metadata/sample.bin.json
 ```
 
-Prepare the seeder's local piece storage from that exact source file. This checks
-every piece hash and the optional whole-file hash before publishing the pieces to
-the peer's permanent storage:
+Generate metadata from the exact file you intend to share. If the source file changes, regenerate its metadata.
+
+## 3. Prepare the Seeder
+
+Prepare the seeder's persistent piece storage:
 
 ```bash
 python scripts/seed_file.py \
@@ -38,35 +45,62 @@ python scripts/seed_file.py \
     --peer-id seed1
 ```
 
-## Start the Tracker and Seeder
+The source file and metadata must correspond. The preparation workflow checks the source data against the metadata before publishing pieces to the peer's storage.
 
-Start the HTTP tracker in one terminal:
+## 4. Start the Tracker
+
+In the first terminal, run:
 
 ```bash
 python -m src.tracker.tracker_main
 ```
 
-By default, it listens at `http://127.0.0.1:6969`. You can check that the service
-is responding by opening `http://127.0.0.1:6969/health`. The API also exposes
-`POST /announce`, `GET /peers`, and `GET /stats`; peer clients use the same HTTP
-port configured by `--tracker-port`.
+The default HTTP tracker address is `http://127.0.0.1:6969`.
 
-Start the seeded peer in a second terminal:
+The documented endpoints include:
 
-```bash
-python -m src.main --peer-id seed1 --metadata data/metadata/sample.bin.json --port 6881
+- `GET /health` — liveness check.
+- `GET /stats` — tracker statistics.
+- `GET /peers` — retrieve peers for a file swarm.
+- `POST /announce` — register/update a peer and retrieve discovered peers.
+
+You can check the default health endpoint in a browser or with a command-line HTTP client:
+
+```text
+http://127.0.0.1:6969/health
 ```
 
-Start each downloader with a unique peer ID and port, using the same metainfo.
-For example, in another terminal:
+## 5. Start the Seeder
+
+In a second terminal, run:
 
 ```bash
-python -m src.main --peer-id peer2 --metadata data/metadata/sample.bin.json --port 6882
+python -m src.main \
+    --peer-id seed1 \
+    --metadata data/metadata/sample.bin.json \
+    --port 6881
 ```
 
-After the downloader has received all pieces, reconstruct and verify its stored
-pieces. Use the same `--storage` root used when starting that peer if you
-customized the storage path:
+Keep the tracker and seeder running while a downloader is joining the swarm.
+
+## 6. Start a Downloader
+
+In a third terminal, use the same metadata but a different peer ID and listening port:
+
+```bash
+python -m src.main \
+    --peer-id peer2 \
+    --metadata data/metadata/sample.bin.json \
+    --port 6882
+```
+
+Each peer process should use a unique peer ID and listening port. Additional downloaders can be started in separate terminals in the same way.
+
+The tracker is responsible for discovery; peers transfer pieces directly to one another over TCP.
+
+## 7. Reconstruct and Verify the Download
+
+After the downloader has acquired all pieces, run:
 
 ```bash
 python scripts/verify_download.py \
@@ -75,15 +109,18 @@ python scripts/verify_download.py \
     --output data/downloads/sample.bin
 ```
 
-The verifier checks each piece's size and SHA-256 hash, reconstructs the file,
-checks the final size and whole-file hash, and only then writes the final output.
+If you started the peer with a custom storage root, pass the corresponding storage option supported by the verifier so it reads the correct piece store.
 
-## Verify Installation
+The verification workflow checks piece sizes and SHA-256 hashes, reconstructs the file, and checks the resulting file against the metadata before writing the final output.
 
-Run the test suite:
+A successful peer startup does not prove that a transfer completed. Confirm that all pieces have been obtained and that reconstruction and verification succeed.
+
+## 8. Run the Tests
+
+From the project root:
 
 ```bash
-pytest
+python -m pytest
 ```
 
 Compile-check the source:
@@ -91,3 +128,13 @@ Compile-check the source:
 ```bash
 python -m compileall src
 ```
+
+## Troubleshooting
+
+- **Tracker connection fails:** confirm the tracker is running and that the peer uses the correct tracker host and port.
+- **Peer discovery returns no peers:** confirm that another peer is running, has announced the same file ID, and uses compatible metadata.
+- **A piece is rejected:** regenerate metadata from the actual source file and verify that the source and metadata match.
+- **The final file cannot be reconstructed:** check whether the download has all required pieces and whether the verifier is pointed at the correct peer storage root.
+- **A port is already in use:** choose another available listening port for the peer.
+
+For multi-file swarm preparation and interactive file switching, see `dynamic_files.md`. For the overall architecture and protocol details, see `architecture.md` and `protocol_specification.md`.

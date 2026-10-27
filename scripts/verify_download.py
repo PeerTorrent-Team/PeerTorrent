@@ -23,6 +23,7 @@ from src.pieces.metadata import calculate_file_id
 from src.pieces.metadata_serializer import load_metadata
 from src.storage.file_workflow import verify_downloaded_file
 from src.storage.piece_storage import PieceStorage
+from src.storage.paths import DEFAULT_STORAGE_ROOT, PROJECT_ROOT, resolve_storage_root
 
 
 def main() -> None:
@@ -40,8 +41,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--storage",
-        default="data/peer_storage",
-        help="Base piece-storage directory (default: data/peer_storage).",
+        type=Path,
+        default=None,
+        help=f"Base piece-storage directory (default: {DEFAULT_STORAGE_ROOT}).",
     )
     parser.add_argument(
         "--output",
@@ -53,20 +55,27 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    metadata = load_metadata(args.metadata)
+    metadata_path = Path(args.metadata).expanduser()
+    if not metadata_path.is_absolute():
+        metadata_path = PROJECT_ROOT / metadata_path
+    metadata = load_metadata(metadata_path.resolve())
     file_id = calculate_file_id(metadata)
+    storage_root = resolve_storage_root(args.storage)
+    print(f"Storage root: {storage_root}")
     storage = PieceStorage(
-        storage_dir=args.storage,
+        storage_dir=storage_root,
         peer_id=args.peer_id,
         file_id=file_id,
     )
     safe_file_name = Path(metadata.file_name.replace("\\", "/")).name
-    output_path = args.output or str(Path("data/downloads") / safe_file_name)
+    output_path = Path(args.output) if args.output else Path("data/downloads") / safe_file_name
+    if not output_path.is_absolute():
+        output_path = PROJECT_ROOT / output_path
 
     output = verify_downloaded_file(
         metadata=metadata,
         storage=storage,
-        output_path=output_path,
+        output_path=output_path.resolve(),
     )
 
     print("Download verification passed.")

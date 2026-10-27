@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from email.mime import message
 import threading
+import time
 
+from src.network import connection
 from src.protocol.message import Message
 from src.protocol.message_types import MessageType
 from src.storage.piece_storage import PieceStorage
@@ -10,13 +13,12 @@ from src.storage.piece_storage import PieceStorage
 class UploadManager:
     """Handles requests from remote peers."""
 
-    def __init__(
-        self,
-        storage: PieceStorage,
-        state,
-    ) -> None:
+    def __init__(self,storage: PieceStorage,state,upload_rate_limit: int | None = None,) -> None:
         self._storage = storage
         self._state = state
+        if upload_rate_limit is not None and upload_rate_limit <= 0:
+         raise ValueError("upload_rate_limit must be positive")
+        self._upload_rate_limit = upload_rate_limit
         self._lock = threading.RLock()
         self._uploads: dict[str, set[int]] = {}
 
@@ -69,18 +71,17 @@ class UploadManager:
             if not peer_uploads:
                 self._uploads.pop(peer_id, None)
 
-    def send_piece(self, connection, piece_index: int) -> bytes:
-        """Read a local piece and send it to a remote peer."""
+    def send_piece(self, connection, piece_index) -> bytes:
+     """Read a local piece and send it to a remote peer."""
+     data = self._storage.load_piece(piece_index)
 
-        data = self._storage.load_piece(piece_index)
+     # Simulate upload bandwidth limits for experiments.
+     if self._upload_rate_limit is not None:
+        time.sleep(len(data) / self._upload_rate_limit)
 
-        message = Message(
-            type=MessageType.PIECE,
-            payload={
-                "piece_index": piece_index,
-                "data": data,
-            },
-        )
-
-        connection.send_message(message)
-        return data
+     message = Message(
+        type=MessageType.PIECE,
+        payload={"piece_index": piece_index, "data": data},
+     )
+     connection.send_message(message)
+     return data

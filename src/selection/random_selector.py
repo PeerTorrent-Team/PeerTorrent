@@ -4,6 +4,8 @@ from .selector import Selector
 
 
 class RandomSelector(Selector):
+    def __init__(self, seed: int | None = None) -> None:
+        self._random = random.Random(seed)
 
     def select_piece(self, missing_pieces, availability):
         available = [
@@ -15,4 +17,4 @@ class RandomSelector(Selector):
         if not available:
             return None
 
-        return random.choice(available)
+        return self._random.choice(available)
